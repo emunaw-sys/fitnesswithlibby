@@ -1,0 +1,104 @@
+@import "tailwindcss";
+
+/* Fonts (Poppins / DM Sans / Great Vibes) are loaded via <link> in app/layout.tsx. */
+
+/* ============================================================
+   FITNESS WITH LIBBY — design tokens + type
+   ============================================================ */
+
+.fwl-root {
+  /* Brand Palette */
+  --color-gold: #ffd889;
+  --color-peach: #ffc29a;
+  --color-coral: #ff8fa3;
+  --color-hot-pink: #ff5ca8;
+  --color-violet: #a873d8;
+  --color-deep-purple: #5b2d6e;
+
+  /* Neutrals */
+  --color-white: #ffffff;
+  --color-cream: #fffaf5;
+  --color-cream-2: #fff3e8;
+  --color-gray-light: #f5f0f8;
+  --color-gray-mid: #d4c8e0;
+  --color-gray-text: #7a6a8a;
+  --color-dark: #2a1535;
+  --color-black: #1a0d24;
+
+  /* Backgrounds */
+  --bg-section-alt: var(--color-cream-2);
+
+  /* Brand Gradients */
+  --gradient-brand-h: linear-gradient(90deg, #ffd889 0%, #ffc29a 20%, #ff8fa3 40%, #ff5ca8 60%, #a873d8 80%, #5b2d6e 100%);
+  --gradient-warm: linear-gradient(135deg, #ffd889 0%, #ffc29a 50%, #ff8fa3 100%);
+  --gradient-cool: linear-gradient(135deg, #ff5ca8 0%, #a873d8 50%, #5b2d6e 100%);
+
+  /* Border Radius */
+  --radius-sm: 6px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 24px;
+
+  /* Shadows */
+  --shadow-sm: 0 1px 3px rgba(91, 45, 110, 0.08), 0 1px 2px rgba(91, 45, 110, 0.04);
+  --shadow-md: 0 4px 16px rgba(91, 45, 110, 0.12), 0 2px 6px rgba(91, 45, 110, 0.06);
+  --shadow-lg: 0 8px 32px rgba(91, 45, 110, 0.16), 0 4px 12px rgba(91, 45, 110, 0.08);
+
+  background: var(--color-cream);
+  font-family: 'DM Sans', sans-serif;
+  overflow-x: hidden;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  background: #fffaf5;
+}
+
+.fwl-root *,
+.fwl-root *::before,
+.fwl-root *::after {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+.fwl-root .eyebrow {
+  font-family: 'Poppins', sans-serif;
+  font-weight: 600;
+  font-size: 0.75rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--color-hot-pink);
+}
+
+/* Animations */
+@keyframes fwlFade {
+  from { opacity: 0; transform: scale(0.96); }
+  to { opacity: 1; transform: scale(1); }
+}
+@keyframes fwlBob {
+  0%, 100% { transform: translateX(-50%) translateY(0); }
+  50% { transform: translateX(-50%) translateY(7px); }
+}
+
+/* Hero */
+.fwl-root .hero-wrap { position: relative; width: 100%; line-height: 0; }
+.fwl-root .hero-wrap img { width: 100%; height: auto; display: block; }
+.fwl-root .scroll-cue {
+  position: absolute; left: 50%; bottom: 22px; transform: translateX(-50%);
+  z-index: 5; display: flex; flex-direction: column; align-items: center; gap: 6px;
+  animation: fwlBob 2.2s ease-in-out infinite; pointer-events: none;
+}
+
+/* Responsive collapses */
+@media (max-width: 860px) {
+  .fwl-root .about-grid { grid-template-columns: 1fr !important; }
+  .fwl-root .footer-grid { grid-template-columns: 1fr 1fr !important; }
+}
+@media (max-width: 560px) {
+  .fwl-root .pillar-grid { grid-template-columns: 1fr !important; }
+  .fwl-root .footer-grid { grid-template-columns: 1fr !important; }
+}
