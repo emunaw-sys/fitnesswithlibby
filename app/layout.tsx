@@ -1,5 +1,38 @@
 import type { Metadata } from "next";
+import { Anton, Bebas_Neue, Poppins, Great_Vibes } from "next/font/google";
 import "./globals.css";
+
+// Display headline — heavy condensed (the "WHERE FITNESS" weight)
+const anton = Anton({
+  weight: "400",
+  subsets: ["latin"],
+  variable: "--font-display-heavy",
+  display: "swap",
+});
+
+// Display headline — lighter condensed (the "MEETS" weight)
+const bebas = Bebas_Neue({
+  weight: "400",
+  subsets: ["latin"],
+  variable: "--font-display",
+  display: "swap",
+});
+
+// Body / UI / nav
+const poppins = Poppins({
+  weight: ["400", "500", "600", "700"],
+  subsets: ["latin"],
+  variable: "--font-body",
+  display: "swap",
+});
+
+// Script accent — the pink "fun"
+const greatVibes = Great_Vibes({
+  weight: "400",
+  subsets: ["latin"],
+  variable: "--font-script",
+  display: "swap",
+});
 
 export const metadata: Metadata = {
   title: "Fitness With Libby — Beit Shemesh",
@@ -13,13 +46,10 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className="h-full antialiased">
-      <link rel="preconnect" href="https://fonts.googleapis.com" />
-      <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
-      <link
-        rel="stylesheet"
-        href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800;900&family=DM+Sans:wght@300;400;500;600&family=Great+Vibes&display=swap"
-      />
+    <html
+      lang="en"
+      className={`${anton.variable} ${bebas.variable} ${poppins.variable} ${greatVibes.variable} h-full antialiased`}
+    >
       <body className="min-h-full">{children}</body>
     </html>
   );
