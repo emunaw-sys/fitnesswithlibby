@@ -1,44 +1,65 @@
+@import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Dancing+Script:wght@600;700&family=Caveat:wght@500;600;700&family=Bad+Script&family=Poppins:wght@400;500;600;700&display=swap');
 @import "tailwindcss";
 
 /* ============================================================
-   FITNESS WITH LIBBY — design tokens
-   Fonts are loaded via next/font in app/layout.tsx and exposed
-   as CSS variables: --font-display-heavy, --font-display,
-   --font-body, --font-script.
+   FITNESS WITH LIBBY — Design tokens
    ============================================================ */
 
-@theme inline {
-  /* Brand */
-  --color-ink: #2c1a4d; /* deep indigo headline / nav */
-  --color-ink-soft: #4a3a5c; /* body copy */
-  --color-pink: #ee2a7b; /* hot pink accent / script */
-  --color-coral: #ff8a6b;
-  --color-peach: #ffc7a3;
-  --color-gold: #e6b66a;
+:root {
+  /* Brand ink — dark purple text fill */
+  --ink:            #3C1842;
+  --ink-soft:       #2A2350;
+  --bg-dark:        #14102E; /* deep backgrounds (body / hero fallback) */
 
-  /* Surfaces */
-  --color-cream: #f8ecdf;
-  --color-cream-hi: #fbf1e7;
+  /* Accents */
+  --pink:           #F7075A;
+  --pink-text:      #D40E5C;
 
-  /* Fonts */
-  --font-display-heavy: var(--font-display-heavy), "Arial Narrow", sans-serif;
-  --font-display: var(--font-display), "Arial Narrow", sans-serif;
-  --font-body: var(--font-body), system-ui, sans-serif;
-  --font-script: var(--font-script), cursive;
+  /* CTA gradient */
+  --cta-start:      #FC1B33;
+  --cta-end:        #ED3A8C;
+  --cta-gradient:   linear-gradient(95deg, var(--cta-start) 0%, var(--cta-end) 100%);
+
+  /* Background sweep */
+  --bg-peach:       #FDB577;
+  --bg-coral:       #FC8F8B;
+  --bg-magenta:     #E84E8E;
+  --bg-plum:        #4C046F;
+
+  /* Surface */
+  --white:          #FFFFFF;
+  --glow-warm:      #FFE8C8;
+
+  /* Type — loaded via Google Fonts @import above */
+  --font-display:   'Bebas Neue', "Arial Narrow", sans-serif;
+  --font-script:    'Dancing Script', cursive;
+  --font-caveat:    'Caveat', cursive;
+  --font-bad:       'Bad Script', cursive;
+  --font-ui:        'Poppins', system-ui, sans-serif;
+
+  /* Spacing */
+  --s-1: 4px;  --s-2: 8px;  --s-3: 12px; --s-4: 16px;
+  --s-5: 24px; --s-6: 32px; --s-7: 48px; --s-8: 64px;
+  --s-9: 96px; --s-10: 128px;
+
+  /* Radius */
+  --r-pill: 999px;
+  --r-card: 16px;
+
+  /* Motion */
+  --ease: cubic-bezier(0.22, 1, 0.36, 1);
 }
 
-* {
-  box-sizing: border-box;
-}
+* { box-sizing: border-box; }
 
-html {
-  scroll-behavior: smooth;
-}
+html { scroll-behavior: smooth; }
 
 body {
   margin: 0;
-  background: var(--color-cream);
-  color: var(--color-ink-soft);
-  font-family: var(--font-body);
-  overflow-x: hidden;
+  background: var(--bg-dark);
+  color: var(--ink-soft);
+  font-family: var(--font-ui);
+  /* No overflow-x here: setting it makes <body> the scroll container and breaks
+     window.scrollY (used by the scroll-out effect). The hero clips its own
+     sliding text via `.hero { overflow: hidden }`. */
 }
