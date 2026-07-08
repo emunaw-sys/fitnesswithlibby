@@ -1,25 +1,31 @@
 import Hero from "./components/Hero";
+import {
+  Values,
+  About,
+  Classes,
+  PersonalTraining,
+  Testimonials,
+  GetStarted,
+  Membership,
+  FinalCta,
+  Footer,
+} from "./components/Sections";
+import SiteInteractions from "./components/SiteInteractions";
 
 export default function Home() {
   return (
     <main>
       <Hero />
-      {/* Placeholder for the next section — gives the page scroll room so the
-          hero's scroll-out animation can play. Replace with real content. */}
-      <section
-        style={{
-          minHeight: "100vh",
-          background: "#fff",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          fontFamily: "var(--font-ui)",
-          color: "var(--ink)",
-          fontSize: 20,
-        }}
-      >
-        Next section coming soon
-      </section>
+      <Values />
+      <About />
+      <Classes />
+      <PersonalTraining />
+      <Testimonials />
+      <GetStarted />
+      <Membership />
+      <FinalCta />
+      <Footer />
+      <SiteInteractions />
     </main>
   );
 }
