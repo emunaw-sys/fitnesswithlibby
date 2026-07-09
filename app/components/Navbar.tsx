@@ -2,13 +2,15 @@
 
 import { useState } from "react";
 
+// Absolute "/#id" hrefs so the nav works from any page (e.g. /book) and still
+// smooth-scrolls when already on the homepage (same path, hash-only change).
 const LINKS: { href: string; label: string }[] = [
-  { href: "#about", label: "About" },
-  { href: "#classes", label: "Classes" },
-  { href: "#training", label: "Personal Training" },
-  { href: "#membership", label: "Membership" },
-  { href: "#reviews", label: "Reviews" },
-  { href: "#contact", label: "Contact" },
+  { href: "/#about", label: "About" },
+  { href: "/#classes", label: "Classes" },
+  { href: "/#training", label: "Personal Training" },
+  { href: "/#membership", label: "Membership" },
+  { href: "/#reviews", label: "Reviews" },
+  { href: "/#contact", label: "Contact" },
 ];
 
 export default function Navbar() {
@@ -17,7 +19,7 @@ export default function Navbar() {
 
   return (
     <nav>
-      <a className="logo" href="#" onClick={close}>
+      <a className="logo" href="/" onClick={close}>
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src="/logo-libby-black.png" alt="Fitness With Libby" />
       </a>
@@ -32,7 +34,7 @@ export default function Navbar() {
       </ul>
 
       {/* Desktop CTA */}
-      <a className="nav-cta" href="#contact">
+      <a className="nav-cta" href="/book">
         Book a Class
       </a>
 
@@ -56,7 +58,7 @@ export default function Navbar() {
             {l.label}
           </a>
         ))}
-        <a className="nav-cta-mobile" href="#contact" onClick={close}>
+        <a className="nav-cta-mobile" href="/book" onClick={close}>
           Book a Class
         </a>
       </div>

@@ -19,8 +19,8 @@ export function Values() {
       </h2>
 
       <p className="grow-sub">
-        Women-only. Real workouts. Real strength. A supportive community where
-        you can challenge yourself and feel stronger every week.
+        Real workouts. Real strength. A supportive community where you can
+        challenge yourself and feel stronger every week.
       </p>
 
       <div className="cards">
@@ -50,8 +50,9 @@ export function Values() {
             <div className="card-text">
               <h3>Kosher Environment</h3>
               <p>
-                Only Jewish music. A spiritually aligned, tzniusdik space where
-                you can focus fully on yourself.
+                Only Jewish music. A tzniusdik, spiritually aligned space where
+                you can focus on working out — not at the detriment of your
+                ruchniyos.
               </p>
             </div>
           </div>
@@ -64,8 +65,8 @@ export function Values() {
             <div className="card-text">
               <h3>Supportive Community</h3>
               <p>
-                Women who cheer each other on, show up consistently, and make
-                the studio a place you actually want to be.
+                Women who cheer each other on, build each other up, and leave
+                competition at the door.
               </p>
             </div>
           </div>
@@ -118,9 +119,9 @@ export function About() {
           <p>
             After training in fitness, personal training, TRX, and kickboxing at
             Wingate College, and Pilates at MG Studios in Jerusalem, everything
-            changed. I discovered that the right kind of movement — the kind
-            that challenges you, that you actually look forward to — builds
-            something in you that goes far beyond fitness.
+            changed. I learned that when a workout actually feels good — when you
+            look forward to it — you keep showing up. And that consistency is
+            what changes everything.
           </p>
           <p>
             Today I&rsquo;m an exercise fanatic, which still makes me laugh. I
@@ -197,16 +198,6 @@ export function Classes() {
               her week allows. With morning and evening slots, there&rsquo;s
               always a time that fits around your family and your life.
             </p>
-            <div className="time-strip">
-              <div className="t">
-                <b>9:00 AM</b>
-                <span>Mornings</span>
-              </div>
-              <div className="t">
-                <b>8:30 PM</b>
-                <span>Evenings</span>
-              </div>
-            </div>
           </div>
         </div>
 
@@ -245,7 +236,7 @@ export function Classes() {
 
         <div className="b-style s5">
           <span className="num">05</span>
-          <span className="name">Core Power</span>
+          <span className="name">Pilates</span>
         </div>
 
         <div className="b-style s6">
@@ -296,7 +287,7 @@ export function PersonalTraining() {
           </p>
 
           <div className="train-cta">
-            <a className="btn-primary" href="#contact">
+            <a className="btn-primary" href="/#contact">
               <span>Enquire About Personal Training</span>
             </a>
           </div>
@@ -393,49 +384,30 @@ export function Testimonials() {
           <div className="t-card grad" data-pos="0">
             <span className="qmark">&ldquo;</span>
             <blockquote>
-              Libby changed the way I see my body – and what I&rsquo;m capable
-              of.
+              I never enjoyed hard classes before I came here.
             </blockquote>
             <div className="sig">
-              <span className="sig-name">Miriam</span>
-              <span className="sig-sub">Miriam S. · Studio Member</span>
+              <span className="sig-name">Tehilla</span>
+              <span className="sig-sub">Tehilla G. · Studio Member</span>
             </div>
           </div>
           <div className="t-card v-plum" data-pos="1">
             <span className="qmark">&ldquo;</span>
-            <blockquote>
-              The hardest class I&rsquo;ve ever done — and somehow the most fun.
-            </blockquote>
+            <blockquote>I never knew strength could be so fun.</blockquote>
             <div className="sig">
-              <span className="sig-name">Rachel</span>
-              <span className="sig-sub">Rachel K. · Studio Member</span>
+              <span className="sig-name">Tali</span>
+              <span className="sig-sub">Tali · Studio Member</span>
             </div>
           </div>
-          <div className="t-card v-cream" data-pos="2">
+          <div className="t-card v-magenta" data-pos="2">
             <span className="qmark">&ldquo;</span>
             <blockquote>
-              I came for the workout. I stayed because I&rsquo;ve never felt
-              stronger.
+              This is something so unique — real strength and real fun all
+              rolled into one.
             </blockquote>
             <div className="sig">
-              <span className="sig-name">Devora</span>
-              <span className="sig-sub">Devora L. · Studio Member</span>
-            </div>
-          </div>
-          <div className="t-card v-magenta" data-pos="3">
-            <span className="qmark">&ldquo;</span>
-            <blockquote>It&rsquo;s the hour of my week that&rsquo;s completely mine.</blockquote>
-            <div className="sig">
-              <span className="sig-name">Shira</span>
-              <span className="sig-sub">Shira B. · Studio Member</span>
-            </div>
-          </div>
-          <div className="t-card" data-pos="4">
-            <span className="qmark">&ldquo;</span>
-            <blockquote>You&rsquo;re never just a number here. Libby sees you.</blockquote>
-            <div className="sig">
-              <span className="sig-name">Tamar</span>
-              <span className="sig-sub">Tamar G. · Studio Member</span>
+              <span className="sig-name">Yehudit</span>
+              <span className="sig-sub">Yehudit S. · Studio Member</span>
             </div>
           </div>
         </div>
@@ -502,7 +474,7 @@ export function GetStarted() {
               Love it? Join the membership. Want more? Ask Libby about personal
               training.
             </p>
-            <a className="r-cta" href="#contact">
+            <a className="r-cta" href="/book">
               Book Your First Class &#8250;
             </a>
           </div>
@@ -628,8 +600,8 @@ export function Footer() {
           <div className="footer-brand">
             <img className="footer-logo" src="/logo-libby-black.png" alt="Fitness With Libby" />
             <p className="footer-mission">
-              Movement that builds you up — physically and mentally. A
-              women-only studio in Beit Shemesh.
+              Movement that builds you up — physically and mentally. A warm,
+              private studio in Beit Shemesh.
             </p>
 
             <div className="footer-details">
@@ -652,18 +624,18 @@ export function Footer() {
 
           <div className="footer-nav" role="navigation" aria-label="Footer">
             <span className="footer-col-title">Explore</span>
-            <a href="#">Home</a>
-            <a href="#classes">Classes &amp; Booking</a>
-            <a href="#about">About Libby</a>
-            <a href="#training">Personal Training</a>
-            <a href="#contact">Contact</a>
+            <a href="/">Home</a>
+            <a href="/book">Classes &amp; Booking</a>
+            <a href="/#about">About Libby</a>
+            <a href="/#training">Personal Training</a>
+            <a href="/#contact">Contact</a>
           </div>
 
           <div className="footer-contact">
-            <a className="btn-primary footer-cta" href="#contact">
+            <a className="btn-primary footer-cta" href="/#contact">
               <span>Get In Touch</span>
             </a>
-            <a className="footer-member" href="#contact">
+            <a className="footer-member" href="/book">
               Already a member? Book your class <span className="arr">&#8594;</span>
             </a>
           </div>

@@ -231,6 +231,9 @@
     padding:26px 24px;
     display:flex;flex-direction:column;
     overflow:hidden;
+    /* target height for the vertical word ≈ the longest word's natural
+       length, so shorter words (Kosher) only stretch a little */
+    --word-h:calc(3.5 * clamp(48px,4.6vw,64px));
     transition:transform .3s cubic-bezier(.22,1,.36,1),box-shadow .3s;
   }
   .card:hover{transform:translateY(-8px);box-shadow:0 24px 50px -20px rgba(51,18,48,.35)}
@@ -262,7 +265,7 @@
 
   .card-body{
     flex:1;
-    display:flex;gap:18px;align-items:center;
+    display:flex;gap:18px;align-items:flex-end;
   }
   .card-word{
     font-family:var(--font-bebas),sans-serif;
@@ -270,14 +273,21 @@
     line-height:.9;
     writing-mode:vertical-rl;
     transform:rotate(180deg);
-    letter-spacing:.04em;
+    letter-spacing:.02em;
     white-space:nowrap;
     flex-shrink:0;
+    /* bottom-anchored, all words the same height so their tops line up with
+       the heading — shorter words (Kosher) stretch a little to fill it */
+    height:var(--word-h);
+    text-align:justify;
+    text-align-last:justify;
+    text-justify:inter-character;
   }
   .card-1 .card-word{color:rgba(255,255,255,.92)}
 
   .card-text{
-    align-self:center;
+    align-self:flex-end;
+    min-height:var(--word-h);
   }
   .card-text h3{
     font-family:var(--font-bebas),sans-serif;font-weight:400;
@@ -778,9 +788,10 @@
     transform:translate(clamp(-58px,-4vw,-38px),14px) rotate(-8deg) scale(.96);
     opacity:1;z-index:4;
   }
+  /* with a 3-card deck, position 2 is the left-hand card */
   .t-card[data-pos="2"]{
-    transform:translate(20px,26px) rotate(4deg) scale(.92);
-    opacity:0;z-index:3;
+    transform:translate(clamp(-58px,-4vw,-38px),14px) rotate(-8deg) scale(.96);
+    opacity:1;z-index:4;
   }
   .t-card[data-pos="3"]{
     transform:translate(-20px,26px) rotate(-4deg) scale(.92);
@@ -1542,8 +1553,11 @@ html, body { max-width: 100%; }
   .cards{ grid-template-columns:1fr 1fr; gap:12px; }
   .card{ min-height:248px; padding:16px 12px; border-radius:16px; }
   .card-num{ width:34px; height:34px; font-size:13px; margin-bottom:10px; }
-  .card-body{ gap:10px; }
-  .card-word{ font-size:32px; letter-spacing:.02em; }
+  /* narrow 2-col phone cards: paragraphs are too tall to line the word tops up
+     cleanly, so fall back to simple centered natural words */
+  .card-body{ gap:10px; align-items:center; }
+  .card-word{ font-size:32px; letter-spacing:.02em; height:auto; text-align-last:auto; text-justify:auto; }
+  .card-text{ align-self:center; min-height:0; }
   .card-text h3{ font-size:13.5px; }
   .card-text p{ font-size:11px; }
 
@@ -1551,4 +1565,98 @@ html, body { max-width: 100%; }
   .deck{ width:min(240px,74vw); height:clamp(360px,60vh,420px); }
   .t-card{ padding:22px; }
   .t-arrow{ width:44px; height:44px; }
+}
+
+/* ============================================================
+   BOOKING PAGE (/book)
+   ============================================================ */
+.book-page{
+  background:var(--cream);
+  min-height:100vh;
+  display:flex;
+  flex-direction:column;
+}
+
+.book-header{
+  text-align:center;
+  padding:clamp(130px,17vh,190px) clamp(24px,5vw,64px) clamp(20px,3.5vh,36px);
+  background:
+    radial-gradient(62% 60% at 50% 0%, rgba(232,93,138,.10) 0%, transparent 60%),
+    var(--cream);
+}
+.book-kicker{
+  display:flex;align-items:center;justify-content:center;gap:14px;
+  margin-bottom:18px;
+}
+.book-kicker .rule{width:38px;height:1.5px;background:var(--magenta);opacity:.6}
+.book-kicker span{
+  font-size:12px;font-weight:600;letter-spacing:.3em;text-transform:uppercase;
+  color:var(--plum);
+}
+.book-title{
+  font-family:var(--font-bebas),sans-serif;font-weight:400;
+  font-size:clamp(52px,7vw,104px);line-height:1;
+  color:var(--plum);
+}
+.book-title .script{
+  font-family:var(--font-brush),cursive;font-weight:400;
+  font-size:1.06em;color:var(--magenta);
+}
+.book-sub{
+  max-width:56ch;margin:clamp(16px,2.4vh,24px) auto 0;
+  font-size:clamp(15px,1.3vw,18px);font-weight:300;line-height:1.6;
+  color:rgba(51,18,48,.9);
+}
+
+.book-paths-wrap{ padding:clamp(18px,2.5vh,28px) clamp(20px,4vw,48px) 0; }
+.book-paths{
+  max-width:900px;margin:0 auto;
+  display:grid;grid-template-columns:1fr 1fr;
+  gap:clamp(14px,2vw,22px);
+}
+.book-path{
+  border-radius:18px;
+  padding:clamp(22px,2.6vw,30px);
+  color:#fff;
+}
+.path-new{ background:linear-gradient(160deg,#F6A45D 0%,#EE7E68 48%,#E9647F 100%); }
+.path-member{ background:var(--plum); }
+.book-path-label{
+  display:block;
+  font-family:var(--font-bebas),sans-serif;font-weight:400;
+  font-size:clamp(21px,2.3vw,28px);letter-spacing:.06em;
+  margin-bottom:8px;
+}
+.book-path p{
+  font-size:clamp(13.5px,1.1vw,15.5px);font-weight:300;line-height:1.55;
+  color:rgba(255,255,255,.94);
+}
+.book-path strong{ font-weight:600; }
+
+.book-widget-section{
+  width:100%;
+  max-width:920px;margin:0 auto;
+  padding:clamp(26px,4vh,44px) clamp(20px,4vw,48px) clamp(60px,9vh,110px);
+}
+.book-card{
+  background:#FFFDFB;
+  border:1px solid rgba(51,18,48,.12);
+  border-radius:24px;
+  padding:clamp(14px,2.2vw,26px);
+  box-shadow:0 1px 2px rgba(51,18,48,.05), 0 34px 64px -36px rgba(51,18,48,.28);
+}
+.book-outro{
+  max-width:640px;margin:clamp(28px,4vh,40px) auto 0;
+  text-align:center;
+  font-size:clamp(14px,1.15vw,16px);font-weight:300;line-height:1.7;
+  color:rgba(51,18,48,.85);
+}
+.book-outro a{
+  color:var(--magenta);font-weight:500;text-decoration:none;
+  border-bottom:1px solid transparent;transition:border-color .2s;
+}
+.book-outro a:hover{ border-color:var(--magenta); }
+
+@media (max-width: 640px){
+  .book-paths{ grid-template-columns:1fr; }
 }
