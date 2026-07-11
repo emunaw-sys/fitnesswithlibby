@@ -211,6 +211,40 @@ export default function SiteInteractions() {
       }
     }
 
+    /* ---- section 2 cards: cursor tilt + word parallax ---- */
+    const prefersReduced = window.matchMedia?.(
+      "(prefers-reduced-motion: reduce)"
+    ).matches;
+    const canHover = window.matchMedia?.("(hover: hover)").matches;
+    if (!prefersReduced && canHover) {
+      const tiltCards = Array.from(
+        document.querySelectorAll<HTMLElement>(".grow .cards .card")
+      );
+      tiltCards.forEach((card) => {
+        const onMove = (e: PointerEvent) => {
+          const r = card.getBoundingClientRect();
+          const px = (e.clientX - r.left) / r.width - 0.5; // -0.5..0.5
+          const py = (e.clientY - r.top) / r.height - 0.5;
+          card.style.setProperty("--ry", `${px * 9}deg`);
+          card.style.setProperty("--rx", `${-py * 9}deg`);
+          card.style.setProperty("--px", `${px * 2}`); // -1..1 for parallax
+          card.style.setProperty("--py", `${py * 2}`);
+        };
+        const onLeave = () => {
+          card.style.setProperty("--ry", "0deg");
+          card.style.setProperty("--rx", "0deg");
+          card.style.setProperty("--px", "0");
+          card.style.setProperty("--py", "0");
+        };
+        card.addEventListener("pointermove", onMove);
+        card.addEventListener("pointerleave", onLeave);
+        cleanups.push(() => {
+          card.removeEventListener("pointermove", onMove);
+          card.removeEventListener("pointerleave", onLeave);
+        });
+      });
+    }
+
     /* ---- contact form interest chips + submit guard ---- */
     const chips = Array.from(document.querySelectorAll<HTMLElement>(".c-chip"));
     const chipHandlers = chips.map((chip) => {

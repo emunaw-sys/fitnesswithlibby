@@ -11,8 +11,8 @@ export function Values() {
       </div>
 
       <h2 className="grow-title">
-        Warm Welcome. Real Work.
-        <span className="line2">
+        <span className="gt-line">Warm Welcome. Real Work.</span>
+        <span className="gt-line line2">
           Stronger Every <span className="script">week</span>
           <span className="dot">.</span>
         </span>
@@ -202,6 +202,8 @@ export function Classes() {
         </div>
 
         <div className="b-style s1">
+          <img className="ph" src="/style-strengthen-tone.png" alt="" />
+          <div className="shade" />
           <span className="num">01</span>
           <svg className="doodle br" width="26" height="18" viewBox="0 0 26 18" fill="none">
             <circle cx="4" cy="4" r="2" fill="currentColor" opacity=".8" />
@@ -214,8 +216,6 @@ export function Classes() {
         </div>
 
         <div className="b-style s2">
-          <img className="ph" src="/style-dance-fit.png" alt="" />
-          <div className="shade" />
           <span className="num">02</span>
           <span className="name">
             Dance <i>Fit</i>
@@ -223,20 +223,22 @@ export function Classes() {
         </div>
 
         <div className="b-style s3">
+          <img className="ph" src="/style-pilates.png" alt="" />
+          <div className="shade" />
           <span className="num">03</span>
-          <span className="name">Cardio</span>
+          <span className="name">Pilates</span>
         </div>
 
         <div className="b-style s4">
-          <img className="ph" src="/style-step.png" alt="" />
-          <div className="shade" />
           <span className="num">04</span>
-          <span className="name">Step</span>
+          <span className="name">
+            Teens <i>Dance</i>
+          </span>
         </div>
 
         <div className="b-style s5">
           <span className="num">05</span>
-          <span className="name">Pilates</span>
+          <span className="name">Cardio</span>
         </div>
 
         <div className="b-style s6">
@@ -245,10 +247,10 @@ export function Classes() {
         </div>
 
         <div className="b-style s7">
+          <img className="ph" src="/style-step.png" alt="" />
+          <div className="shade" />
           <span className="num">07</span>
-          <span className="name">
-            Teens <i>Dance</i>
-          </span>
+          <span className="name">Step</span>
         </div>
       </div>
     </section>
@@ -408,6 +410,20 @@ export function Testimonials() {
             <div className="sig">
               <span className="sig-name">Yehudit</span>
               <span className="sig-sub">Yehudit S. · Studio Member</span>
+            </div>
+          </div>
+          <div className="t-card v-cream" data-pos="3">
+            <span className="qmark">&ldquo;</span>
+            <blockquote>
+              Libby&rsquo;s classes are truly the highlight of my week. She is so
+              in tune with the women who come, and she gives such thoughtful
+              attention to each person. You can really feel how much she cares,
+              and she creates an atmosphere that makes everyone feel seen,
+              supported, and motivated.
+            </blockquote>
+            <div className="sig">
+              <span className="sig-name">Shani</span>
+              <span className="sig-sub">Shani K. · Studio Member</span>
             </div>
           </div>
         </div>

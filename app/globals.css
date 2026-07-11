@@ -34,17 +34,17 @@
   }
   .hero-bg{
     position:absolute;inset:0;z-index:0;
-    background:url('/hero-studio.png') center 32%/cover no-repeat;
+    background:url('/hero-final.png') center bottom/cover no-repeat;
     background-attachment:fixed;
   }
-  /* controlled central mist: clear headline area first, studio atmosphere second */
+  /* soft mist behind the headline only, so the full gradient stays vivid */
   .hero-bg::before{
     content:"";position:absolute;inset:0;
-    background:radial-gradient(52% 44% at 50% 44%,
-      rgba(253,251,249,.85) 0%,
-      rgba(253,251,249,.68) 38%,
-      rgba(253,251,249,.28) 68%,
-      transparent 92%);
+    background:radial-gradient(46% 38% at 50% 42%,
+      rgba(253,251,249,.55) 0%,
+      rgba(253,251,249,.34) 42%,
+      rgba(253,251,249,.12) 70%,
+      transparent 90%);
   }
 
   /* ============ NAV ============ */
@@ -206,6 +206,7 @@
     font-family:var(--font-brush),cursive;font-weight:400;
     font-size:.98em;
     text-transform:none;
+    display:inline-block;
   }
   .grow-title .dot{color:var(--plum)}
 
@@ -234,9 +235,10 @@
     /* target height for the vertical word ≈ the longest word's natural
        length, so shorter words (Kosher) only stretch a little */
     --word-h:calc(3.5 * clamp(48px,4.6vw,64px));
-    transition:transform .3s cubic-bezier(.22,1,.36,1),box-shadow .3s;
+    transform:perspective(1000px) rotateX(var(--rx,0deg)) rotateY(var(--ry,0deg)) translateY(var(--lift,0px));
+    transition:transform .2s ease-out,box-shadow .3s;
   }
-  .card:hover{transform:translateY(-8px);box-shadow:0 24px 50px -20px rgba(51,18,48,.35)}
+  .card:hover{--lift:-10px;box-shadow:0 26px 54px -20px rgba(51,18,48,.4)}
 
   .card-1{
     background:linear-gradient(175deg,#F6A45D 0%,#EE7E68 48%,#E9647F 100%);
@@ -276,6 +278,8 @@
     letter-spacing:.02em;
     white-space:nowrap;
     flex-shrink:0;
+    translate:calc(var(--px,0) * -6px) calc(var(--py,0) * -6px);
+    transition:translate .2s ease-out,scale .3s ease,color .3s ease,opacity .3s ease;
     /* bottom-anchored, all words the same height so their tops line up with
        the heading — shorter words (Kosher) stretch a little to fill it */
     height:var(--word-h);
@@ -284,6 +288,8 @@
     text-justify:inter-character;
   }
   .card-1 .card-word{color:rgba(255,255,255,.92)}
+  .card:hover .card-word{scale:1.05}
+  .card-1:hover .card-word{color:#fff}
 
   .card-text{
     align-self:flex-end;
@@ -305,6 +311,8 @@
   .doodle.tr{top:22px;right:22px}
   .doodle.br{bottom:20px;right:22px}
   .doodle.bl{bottom:20px;left:50%}
+  .card .doodle{transition:translate .35s ease,rotate .35s ease}
+  .card:hover .doodle{translate:3px -3px;rotate:12deg}
 
   @media(max-width:1020px){
     .cards{grid-template-columns:repeat(2,1fr)}
@@ -565,7 +573,7 @@
   .s5{grid-area:s5;background:#FBF1EA;color:var(--plum);border:1px solid rgba(51,18,48,.22)}
   .s6{grid-area:s6;background:var(--plum);color:#fff}
   .s7{grid-area:s7;background:linear-gradient(160deg,#E9647F 0%,#DE2160 100%);color:#fff}
-  .s3 .num,.s5 .num{color:var(--magenta);opacity:1}
+  .s5 .num{color:var(--magenta);opacity:1}
 
   /* ============ SECTION 5 — PERSONAL TRAINING ============ */
   .train{
@@ -1136,6 +1144,13 @@
     background:url('/last-section.png') center/cover no-repeat, #FFFDFB;
     padding:clamp(80px,11vh,130px) clamp(24px,4.5vw,64px);
   }
+  /* dissolve the image into the plum footer instead of a hard seam */
+  .contact::after{
+    content:"";position:absolute;left:0;right:0;bottom:0;
+    height:clamp(90px,15vh,170px);
+    background:linear-gradient(to bottom, rgba(53,20,62,0), var(--plum));
+    z-index:0;pointer-events:none;
+  }
   .contact-inner{
     position:relative;z-index:1;
     max-width:1120px;margin:0 auto;
@@ -1473,24 +1488,37 @@ html, body { max-width: 100%; }
    Scroll-in reveal — "A Place to Grow" title flows in, then the
    four cards stagger in one at a time (JS adds .is-in when visible)
    ============================================================ */
-.grow-title{
-  opacity:0; transform:translateY(34px);
-  transition:opacity .75s cubic-bezier(.22,1,.36,1), transform .75s cubic-bezier(.22,1,.36,1);
+/* headline reveals line by line (clip wipe), then the script "week" signs in */
+.grow-title .gt-line{
+  display:block;
+  clip-path:inset(0 0 108% 0);
+  transition:clip-path .8s cubic-bezier(.22,1,.36,1);
 }
+.grow-title.is-in .gt-line{ clip-path:inset(0 0 -14% 0); }
+.grow-title.is-in .gt-line:nth-child(1){ transition-delay:.05s; }
+.grow-title.is-in .gt-line:nth-child(2){ transition-delay:.24s; }
+.grow-title .script{ clip-path:inset(0 108% 0 -8%); transition:clip-path .7s cubic-bezier(.22,1,.36,1); }
+.grow-title.is-in .script{ clip-path:inset(0 -8% 0 -8%); transition-delay:.56s; }
 .grow .cards .card{
-  opacity:0; transform:translateY(44px);
-  transition:opacity .7s cubic-bezier(.22,1,.36,1), transform .7s cubic-bezier(.22,1,.36,1), box-shadow .3s;
+  opacity:0; translate:0 46px; scale:.94;
+  transition:opacity .7s cubic-bezier(.22,1,.36,1),
+             translate .7s cubic-bezier(.34,1.56,.64,1),
+             scale .7s cubic-bezier(.34,1.56,.64,1),
+             transform .2s ease-out,
+             box-shadow .3s;
 }
-.grow-title.is-in,
-.grow .cards .card.is-in{ opacity:1; transform:none; }
-/* one card at a time */
-.grow .cards .card:nth-child(1).is-in{ transition-delay:.05s; }
-.grow .cards .card:nth-child(2).is-in{ transition-delay:.20s; }
-.grow .cards .card:nth-child(3).is-in{ transition-delay:.35s; }
-.grow .cards .card:nth-child(4).is-in{ transition-delay:.50s; }
+.grow-title.is-in{ opacity:1; transform:none; }
+.grow .cards .card.is-in{ opacity:1; translate:0 0; scale:1; }
+/* one card at a time — delay only the entrance props, keep tilt/lift instant
+   (order: opacity, translate, scale, transform, box-shadow) */
+.grow .cards .card:nth-child(1).is-in{ transition-delay:.05s,.05s,.05s,0s,0s; }
+.grow .cards .card:nth-child(2).is-in{ transition-delay:.20s,.20s,.20s,0s,0s; }
+.grow .cards .card:nth-child(3).is-in{ transition-delay:.35s,.35s,.35s,0s,0s; }
+.grow .cards .card:nth-child(4).is-in{ transition-delay:.50s,.50s,.50s,0s,0s; }
 
 @media (prefers-reduced-motion: reduce){
-  .grow-title, .grow .cards .card{ opacity:1; transform:none; transition:none; }
+  .grow-title, .grow .cards .card{ opacity:1; transform:none; translate:none; scale:none; transition:none; }
+  .grow-title .gt-line, .grow-title .script{ clip-path:none; transition:none; }
 }
 
 /* ============================================================
