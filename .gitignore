@@ -32,6 +32,11 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+# ...but keep the documented template (no secrets in it)
+!.env.example
+
+# private business documents — keep proposals/letterheads out of the repo
+*.docx
 
 # vercel
 .vercel

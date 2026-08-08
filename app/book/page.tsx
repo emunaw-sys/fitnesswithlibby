@@ -1,7 +1,8 @@
 import type { Metadata } from "next";
 import Navbar from "../components/Navbar";
 import { Footer } from "../components/Sections";
-import BookingWidget from "../components/BookingWidget";
+import BookingFlow from "../components/BookingFlow";
+import { getSchedule } from "../lib/airtable";
 
 export const metadata: Metadata = {
   title: "Book a Class — Fitness With Libby",
@@ -9,7 +10,9 @@ export const metadata: Metadata = {
     "Book your class at Fitness With Libby in Beit Shemesh. New here? Your first class is a single drop-in — no membership required.",
 };
 
-export default function BookPage() {
+export default async function BookPage() {
+  const schedule = await getSchedule();
+
   return (
     <main className="book-page">
       <Navbar />
@@ -50,7 +53,7 @@ export default function BookPage() {
 
       <section className="book-widget-section">
         <div className="book-card">
-          <BookingWidget />
+          <BookingFlow schedule={schedule} />
         </div>
 
         <p className="book-outro">
