@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Navbar from "../components/Navbar";
 import { Footer } from "../components/Sections";
 import BookingFlow from "../components/BookingFlow";
-import { getSchedule } from "../lib/airtable";
+import { getSchedule, type DaySchedule } from "../lib/airtable";
 
 export const metadata: Metadata = {
   title: "Book a Class — Fitness With Libby",
@@ -10,8 +10,20 @@ export const metadata: Metadata = {
     "Book your class at Fitness With Libby in Beit Shemesh. New here? Your first class is a single drop-in — no membership required.",
 };
 
+// Render on request (not at build time), so the deploy never depends on
+// Airtable being reachable. The Airtable reads are still cached (see
+// app/lib/airtable.ts), so this doesn't add API calls.
+export const dynamic = "force-dynamic";
+
 export default async function BookPage() {
-  const schedule = await getSchedule();
+  let schedule: DaySchedule[] = [];
+  let loadError = false;
+  try {
+    schedule = await getSchedule();
+  } catch (err) {
+    console.error("Could not load the class schedule from Airtable:", err);
+    loadError = true;
+  }
 
   return (
     <main className="book-page">
@@ -53,7 +65,18 @@ export default async function BookPage() {
 
       <section className="book-widget-section">
         <div className="book-card">
-          <BookingFlow schedule={schedule} />
+          {loadError ? (
+            <p className="bf-empty" style={{ textAlign: "center" }}>
+              Online booking is briefly unavailable. Please try again in a few
+              minutes, or email Libby at{" "}
+              <a href="mailto:Libbysolomons71@gmail.com">
+                Libbysolomons71@gmail.com
+              </a>{" "}
+              to book your place.
+            </p>
+          ) : (
+            <BookingFlow schedule={schedule} />
+          )}
         </div>
 
         <p className="book-outro">
