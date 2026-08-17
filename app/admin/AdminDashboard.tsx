@@ -54,7 +54,7 @@ export default function AdminDashboard({
 
   return (
     <div className="ad">
-      <header className="ad-top">
+      <div className="ad-top">
         <div>
           <span className="ad-kicker">Fitness with Libby</span>
           <h1>Studio Admin</h1>
@@ -62,9 +62,9 @@ export default function AdminDashboard({
         <button className="ad-logout" onClick={logout}>
           Log out
         </button>
-      </header>
+      </div>
 
-      <nav className="ad-tabs">
+      <div className="ad-tabs" role="tablist">
         <button
           className={tab === "week" ? "on" : ""}
           onClick={() => setTab("week")}
@@ -77,7 +77,7 @@ export default function AdminDashboard({
         >
           Members
         </button>
-      </nav>
+      </div>
 
       {msg && <p className="ad-msg">{msg}</p>}
 
@@ -105,6 +105,7 @@ function WeekTab({
     <div className="ad-week">
       <AddBooking roster={roster} act={act} busy={busy} />
       {roster.length === 0 && <p className="ad-empty">No classes set up yet.</p>}
+      <div className="ad-classes">
       {roster.map((c) => (
         <section className="ad-class" key={c.sessionId}>
           <div className="ad-class-head">
@@ -162,6 +163,7 @@ function WeekTab({
           )}
         </section>
       ))}
+      </div>
     </div>
   );
 }

@@ -1,4 +1,4 @@
-/* Studio Admin — simple, mobile-first UI for Libby */
+/* Studio Admin — desktop-first UI for Libby (with a mobile fallback) */
 
 .ad,
 .ad-login {
@@ -23,11 +23,11 @@
 }
 .ad-login-card {
   width: 100%;
-  max-width: 360px;
+  max-width: 380px;
   background: #fff;
   border: 1px solid var(--ad-line);
   border-radius: 18px;
-  padding: 28px 24px;
+  padding: 32px 28px;
   box-shadow: 0 12px 40px rgba(42, 21, 38, 0.08);
   text-align: center;
 }
@@ -45,25 +45,36 @@
 .ad-form select {
   width: 100%;
   box-sizing: border-box;
-  padding: 13px 14px;
-  font-size: 16px; /* keeps iOS from zooming */
+  padding: 12px 13px;
+  font-size: 15px;
   border: 1px solid var(--ad-line);
-  border-radius: 12px;
+  border-radius: 10px;
   background: #fff;
   color: var(--ad-ink);
+}
+.ad-login-card input:focus,
+.ad-form input:focus,
+.ad-form select:focus {
+  outline: none;
+  border-color: var(--ad-accent);
+  box-shadow: 0 0 0 3px rgba(182, 33, 95, 0.12);
 }
 .ad-login-card button,
 .ad-form-actions button[type="submit"] {
   width: 100%;
   margin-top: 14px;
-  padding: 14px;
-  font-size: 16px;
+  padding: 13px;
+  font-size: 15px;
   font-weight: 600;
   color: #fff;
   background: var(--ad-accent);
   border: none;
-  border-radius: 12px;
+  border-radius: 10px;
   cursor: pointer;
+}
+.ad-login-card button:hover,
+.ad-form-actions button[type="submit"]:hover {
+  background: #9c1a50;
 }
 .ad-login-card button:disabled {
   opacity: 0.5;
@@ -76,18 +87,18 @@
 
 /* ---- shell ---- */
 .ad {
-  max-width: 640px;
+  max-width: 1120px;
   margin: 0 auto;
-  padding: 18px 16px 60px;
+  padding: 28px 32px 64px;
   background: var(--ad-bg);
   min-height: 100dvh;
 }
 .ad-top {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: 12px;
-  margin-bottom: 16px;
+  margin-bottom: 20px;
 }
 .ad-kicker {
   font-size: 11px;
@@ -97,34 +108,37 @@
   font-weight: 600;
 }
 .ad-top h1 {
-  font-size: 24px;
+  font-size: 26px;
   margin: 2px 0 0;
 }
 .ad-logout {
   background: #fff;
   border: 1px solid var(--ad-line);
   border-radius: 10px;
-  padding: 8px 12px;
+  padding: 9px 14px;
   font-size: 13px;
   color: var(--ad-muted);
   cursor: pointer;
 }
+.ad-logout:hover {
+  border-color: #d9cdd4;
+  color: var(--ad-ink);
+}
 
 .ad-tabs {
-  display: flex;
-  gap: 8px;
+  display: inline-flex;
+  gap: 4px;
   background: #f0e9ee;
   padding: 4px;
-  border-radius: 12px;
-  margin-bottom: 16px;
+  border-radius: 11px;
+  margin-bottom: 22px;
 }
 .ad-tabs button {
-  flex: 1;
-  padding: 10px;
+  padding: 9px 26px;
   font-size: 14px;
   font-weight: 600;
   border: none;
-  border-radius: 9px;
+  border-radius: 8px;
   background: transparent;
   color: var(--ad-muted);
   cursor: pointer;
@@ -139,10 +153,10 @@
   background: #fff4d6;
   border: 1px solid #f2d98a;
   color: #7a5a00;
-  padding: 10px 12px;
+  padding: 10px 14px;
   border-radius: 10px;
   font-size: 13px;
-  margin: 0 0 14px;
+  margin: 0 0 16px;
 }
 .ad-empty,
 .ad-none {
@@ -153,40 +167,46 @@
   margin: 4px 0 0;
 }
 
-/* ---- add forms ---- */
+/* ---- add toggle + forms ---- */
 .ad-add-toggle {
-  width: 100%;
-  padding: 13px;
-  margin-bottom: 16px;
-  font-size: 15px;
+  padding: 11px 20px;
+  margin-bottom: 20px;
+  font-size: 14px;
   font-weight: 600;
   color: var(--ad-accent);
   background: #fff;
   border: 1.5px dashed #e3c3d3;
-  border-radius: 12px;
+  border-radius: 11px;
   cursor: pointer;
+}
+.ad-add-toggle:hover {
+  background: #fdf4f8;
 }
 .ad-form {
   background: #fff;
   border: 1px solid var(--ad-line);
   border-radius: 14px;
-  padding: 18px 16px;
-  margin-bottom: 18px;
+  padding: 22px 24px;
+  margin-bottom: 22px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 16px;
+  align-items: end;
 }
 .ad-form h3 {
-  margin: 0 0 12px;
-  font-size: 16px;
+  grid-column: 1 / -1;
+  margin: 0;
+  font-size: 17px;
 }
 .ad-form label {
   display: block;
   font-size: 13px;
   font-weight: 600;
   color: var(--ad-ink);
-  margin-bottom: 12px;
 }
 .ad-form label input,
 .ad-form label select {
-  margin-top: 5px;
+  margin-top: 6px;
   font-weight: 400;
 }
 .ad-opt {
@@ -194,40 +214,54 @@
   font-weight: 400;
 }
 .ad-form-actions {
+  grid-column: 1 / -1;
   display: flex;
-  gap: 10px;
+  gap: 12px;
+  justify-content: flex-end;
 }
 .ad-form-actions button {
-  flex: 1;
+  min-width: 130px;
 }
 .ad-form-actions .ad-cancel {
   background: #f4eef1;
   color: var(--ad-muted);
   border: none;
-  border-radius: 12px;
-  padding: 14px;
-  font-size: 15px;
+  border-radius: 10px;
+  padding: 13px 20px;
+  font-size: 14px;
   font-weight: 600;
   cursor: pointer;
+}
+.ad-form-actions .ad-cancel:hover {
+  background: #ece2e8;
+}
+.ad-form-actions button[type="submit"] {
+  width: auto;
+  margin-top: 0;
 }
 .ad-form-actions button[type="submit"]:disabled {
   opacity: 0.5;
 }
 
-/* ---- class cards ---- */
+/* ---- this week: class cards in a grid ---- */
+.ad-classes {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+  gap: 18px;
+  align-items: start;
+}
 .ad-class {
   background: #fff;
   border: 1px solid var(--ad-line);
   border-radius: 14px;
-  padding: 16px;
-  margin-bottom: 14px;
+  padding: 18px 20px;
 }
 .ad-class-head {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
   gap: 10px;
-  margin-bottom: 12px;
+  margin-bottom: 6px;
 }
 .ad-class-head h2 {
   font-size: 17px;
@@ -243,7 +277,7 @@
   font-weight: 600;
   color: #2e7d32;
   background: #eaf6eb;
-  padding: 5px 9px;
+  padding: 5px 10px;
   border-radius: 999px;
 }
 .ad-spots.full {
@@ -262,12 +296,34 @@
   padding: 12px 0;
   border-top: 1px solid var(--ad-line);
 }
+/* members: name on the left, status buttons on the right */
+.ad-mlist li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+/* class roster cards are narrow, so stack each person's actions below */
+.ad-people li {
+  display: block;
+}
+.ad-people .ad-person {
+  margin-bottom: 8px;
+}
+.ad-people .ad-actions {
+  display: flex;
+  gap: 6px;
+}
+.ad-people .ad-mark {
+  flex: 1;
+}
 .ad-people li.cancelled .ad-name {
   text-decoration: line-through;
   color: var(--ad-muted);
 }
 .ad-person {
-  margin-bottom: 8px;
+  min-width: 0;
+  flex: 1;
 }
 .ad-name {
   font-size: 15px;
@@ -303,20 +359,23 @@
 /* ---- action buttons ---- */
 .ad-actions {
   display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
+  gap: 6px;
+  flex-shrink: 0;
 }
 .ad-mark {
-  flex: 1;
-  min-width: 84px;
-  padding: 11px 8px;
+  padding: 8px 13px;
   font-size: 13px;
   font-weight: 600;
   border: 1px solid var(--ad-line);
-  border-radius: 10px;
+  border-radius: 9px;
   background: #fff;
   color: var(--ad-muted);
   cursor: pointer;
+  white-space: nowrap;
+}
+.ad-mark:hover:not(:disabled) {
+  border-color: #d9cdd4;
+  color: var(--ad-ink);
 }
 .ad-mark:disabled {
   opacity: 0.55;
@@ -350,4 +409,48 @@
   background: #eee;
   border-color: #ccc;
   color: #555;
+}
+
+/* ---- members: single panel of rows ---- */
+.ad-mlist {
+  background: #fff;
+  border: 1px solid var(--ad-line);
+  border-radius: 14px;
+  padding: 4px 20px;
+}
+.ad-mlist li:first-child {
+  border-top: none;
+}
+
+/* ---- mobile fallback ---- */
+@media (max-width: 640px) {
+  .ad {
+    padding: 18px 16px 60px;
+  }
+  .ad-tabs {
+    display: flex;
+  }
+  .ad-tabs button {
+    flex: 1;
+  }
+  .ad-classes {
+    grid-template-columns: 1fr;
+  }
+  .ad-people li,
+  .ad-mlist li {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .ad-actions {
+    margin-top: 8px;
+  }
+  .ad-mark {
+    flex: 1;
+  }
+  .ad-form-actions {
+    justify-content: stretch;
+  }
+  .ad-form-actions button {
+    flex: 1;
+  }
 }
