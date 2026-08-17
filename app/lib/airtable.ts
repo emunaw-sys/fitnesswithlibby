@@ -174,9 +174,11 @@ export async function getSchedule(): Promise<DaySchedule[]> {
     ),
   ]);
 
-  // Count current bookings per (session, class date).
+  // Count current bookings per (session, class date). Cancelled bookings
+  // don't hold a spot, so they're skipped and the place frees up.
   const counts = new Map<string, number>();
   for (const b of bookings) {
+    if (b.fields["Attendance"] === "Cancelled") continue;
     const classDate = b.fields["Class Date"];
     const sessionLinks = b.fields["Sessions"];
     if (typeof classDate !== "string" || !Array.isArray(sessionLinks)) continue;
@@ -252,6 +254,27 @@ export async function createBooking(booking: NewBooking): Promise<void> {
   const className = srec.fields?.Name as string | undefined;
   const classTime = srec.fields?.Time as string | undefined;
 
+  // If this email matches a member on file, link the booking to them so
+  // Libby can tell members apart from drop-ins. Non-fatal if it fails.
+  let memberIds: string[] | undefined;
+  try {
+    const email = booking.email.toLowerCase().replace(/['\\]/g, "");
+    const mres = await fetch(
+      `${API}/Members?maxRecords=1&filterByFormula=${encodeURIComponent(
+        `LOWER({Email}) = '${email}'`,
+      )}`,
+      { headers: authHeaders, cache: "no-store" },
+    );
+    if (mres.ok) {
+      const mdata = (await mres.json()) as { records?: { id: string }[] };
+      if (mdata.records && mdata.records.length > 0) {
+        memberIds = [mdata.records[0].id];
+      }
+    }
+  } catch {
+    // ignore — the booking still saves without a member link
+  }
+
   const res = await fetch(`${API}/Booking`, {
     method: "POST",
     headers: { ...authHeaders, "Content-Type": "application/json" },
@@ -266,6 +289,8 @@ export async function createBooking(booking: NewBooking): Promise<void> {
         "Class Name": className,
         "Class Time": classTime,
         Attendance: "Booked",
+        Source: "Website",
+        Member: memberIds,
       },
     }),
   });
