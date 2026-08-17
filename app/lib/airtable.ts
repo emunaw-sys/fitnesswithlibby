@@ -155,6 +155,25 @@ async function fetchAll(
   return out;
 }
 
+/** Find a Member record id whose email matches (case-insensitive), if any. */
+async function findMemberIdByEmail(email: string): Promise<string | undefined> {
+  if (!email) return undefined;
+  try {
+    const safe = email.toLowerCase().replace(/['\\]/g, "");
+    const res = await fetch(
+      `${API}/Members?maxRecords=1&filterByFormula=${encodeURIComponent(
+        `LOWER({Email}) = '${safe}'`,
+      )}`,
+      { headers: authHeaders, cache: "no-store" },
+    );
+    if (!res.ok) return undefined;
+    const data = (await res.json()) as { records?: { id: string }[] };
+    return data.records?.[0]?.id;
+  } catch {
+    return undefined; // non-fatal
+  }
+}
+
 /**
  * The live schedule. Dates auto-advance week to week, and each class's
  * "Spots Left" reflects only the bookings for its upcoming occurrence.
@@ -255,25 +274,9 @@ export async function createBooking(booking: NewBooking): Promise<void> {
   const classTime = srec.fields?.Time as string | undefined;
 
   // If this email matches a member on file, link the booking to them so
-  // Libby can tell members apart from drop-ins. Non-fatal if it fails.
-  let memberIds: string[] | undefined;
-  try {
-    const email = booking.email.toLowerCase().replace(/['\\]/g, "");
-    const mres = await fetch(
-      `${API}/Members?maxRecords=1&filterByFormula=${encodeURIComponent(
-        `LOWER({Email}) = '${email}'`,
-      )}`,
-      { headers: authHeaders, cache: "no-store" },
-    );
-    if (mres.ok) {
-      const mdata = (await mres.json()) as { records?: { id: string }[] };
-      if (mdata.records && mdata.records.length > 0) {
-        memberIds = [mdata.records[0].id];
-      }
-    }
-  } catch {
-    // ignore — the booking still saves without a member link
-  }
+  // Libby can tell members apart from drop-ins.
+  const memberId = await findMemberIdByEmail(booking.email);
+  const memberIds = memberId ? [memberId] : undefined;
 
   const res = await fetch(`${API}/Booking`, {
     method: "POST",
@@ -299,5 +302,236 @@ export async function createBooking(booking: NewBooking): Promise<void> {
     throw new Error(
       `Airtable createBooking failed (${res.status}): ${await res.text()}`,
     );
+  }
+}
+
+/* ================================================================== *
+ *  ADMIN  — data for Libby's studio admin page (app/admin)
+ * ================================================================== */
+
+export type RosterBooking = {
+  id: string;
+  name: string;
+  phone: string;
+  firstTime: boolean;
+  isMember: boolean;
+  attendance: string; // Booked | Attended | No-show | Cancelled
+};
+
+export type RosterClass = {
+  sessionId: string;
+  day: string;
+  name: string;
+  time: string;
+  date: string; // e.g. "17 Aug"
+  capacity: number;
+  spotsLeft: number;
+  bookings: RosterBooking[];
+};
+
+/** This week's classes, each with the people booked in — for the roster. */
+export async function getRoster(): Promise<RosterClass[]> {
+  const [sessions, bookings] = await Promise.all([
+    fetchAll("Sessions", {}, 0),
+    fetchAll(
+      "Booking",
+      { filterByFormula: "IS_AFTER({Class Date}, DATEADD(TODAY(), -1, 'days'))" },
+      0,
+    ),
+  ]);
+
+  // Index bookings by session + class date.
+  const byKey = new Map<string, RosterBooking[]>();
+  for (const b of bookings) {
+    const classDate = b.fields["Class Date"];
+    const links = b.fields["Sessions"];
+    if (typeof classDate !== "string" || !Array.isArray(links)) continue;
+    const rb: RosterBooking = {
+      id: b.id,
+      name: (b.fields["Name"] as string) ?? "",
+      phone: (b.fields["Phone"] as string) ?? "",
+      firstTime: Boolean(b.fields["First time?"]),
+      isMember:
+        Array.isArray(b.fields["Member"]) &&
+        (b.fields["Member"] as unknown[]).length > 0,
+      attendance: (b.fields["Attendance"] as string) ?? "Booked",
+    };
+    for (const sid of links as string[]) {
+      const key = `${sid}|${classDate}`;
+      const arr = byKey.get(key);
+      if (arr) arr.push(rb);
+      else byKey.set(key, [rb]);
+    }
+  }
+
+  const result: RosterClass[] = [];
+  for (const rec of sessions) {
+    const day = rec.fields.Day as string | undefined;
+    const name = rec.fields.Name as string | undefined;
+    if (!day || !name) continue;
+    const occ = nextOccurrence(day);
+    const list = byKey.get(`${rec.id}|${toISO(occ)}`) ?? [];
+    const active = list.filter((b) => b.attendance !== "Cancelled").length;
+    const capacity = (rec.fields.Capacity as number | undefined) ?? 0;
+    result.push({
+      sessionId: rec.id,
+      day,
+      name,
+      time: (rec.fields.Time as string | undefined) ?? "",
+      date: formatDate(occ),
+      capacity,
+      spotsLeft: Math.max(0, capacity - active),
+      bookings: list.sort((a, b) => a.name.localeCompare(b.name)),
+    });
+  }
+  result.sort(
+    (a, b) =>
+      DAY_ORDER.indexOf(a.day) - DAY_ORDER.indexOf(b.day) ||
+      timeToMinutes(a.time) - timeToMinutes(b.time),
+  );
+  return result;
+}
+
+const ATTENDANCE_VALUES = ["Booked", "Attended", "No-show", "Cancelled"];
+
+/** Update one booking's attendance/cancellation status. */
+export async function setAttendance(
+  bookingId: string,
+  status: string,
+): Promise<void> {
+  if (!ATTENDANCE_VALUES.includes(status)) throw new Error("Invalid status");
+  const res = await fetch(`${API}/Booking/${bookingId}`, {
+    method: "PATCH",
+    headers: { ...authHeaders, "Content-Type": "application/json" },
+    body: JSON.stringify({ fields: { Attendance: status } }),
+  });
+  if (!res.ok) {
+    throw new Error(`setAttendance failed (${res.status}): ${await res.text()}`);
+  }
+}
+
+export type ManualBooking = {
+  sessionId: string;
+  name: string;
+  email?: string;
+  phone?: string;
+  weeks?: number; // consecutive weeks to book (1–8)
+};
+
+/** Create one (or several consecutive weeks of) manual booking(s). */
+export async function createManualBooking(b: ManualBooking): Promise<number> {
+  const sres = await fetch(`${API}/Sessions/${b.sessionId}`, {
+    headers: authHeaders,
+    cache: "no-store",
+  });
+  if (!sres.ok) throw new Error(`session lookup failed (${sres.status})`);
+  const srec = (await sres.json()) as AirtableRecord;
+  const day = srec.fields?.Day as string | undefined;
+  if (!day) throw new Error("That class has no day set.");
+  const className = srec.fields?.Name as string | undefined;
+  const classTime = srec.fields?.Time as string | undefined;
+
+  const weeks = Math.min(Math.max(Math.round(b.weeks ?? 1), 1), 8);
+  const first = nextOccurrence(day);
+  const memberId = b.email ? await findMemberIdByEmail(b.email) : undefined;
+
+  const records = Array.from({ length: weeks }, (_, k) => {
+    const d = new Date(first);
+    d.setDate(d.getDate() + 7 * k);
+    return {
+      fields: {
+        Name: b.name,
+        Email: b.email || undefined,
+        Phone: b.phone || undefined,
+        Sessions: [b.sessionId],
+        "Class Date": toISO(d),
+        "Class Name": className,
+        "Class Time": classTime,
+        Attendance: "Booked",
+        Source: "Manual",
+        Member: memberId ? [memberId] : undefined,
+      },
+    };
+  });
+
+  const res = await fetch(`${API}/Booking`, {
+    method: "POST",
+    headers: { ...authHeaders, "Content-Type": "application/json" },
+    body: JSON.stringify({ records }),
+  });
+  if (!res.ok) {
+    throw new Error(
+      `createManualBooking failed (${res.status}): ${await res.text()}`,
+    );
+  }
+  return weeks;
+}
+
+export type Member = {
+  id: string;
+  name: string;
+  status: string;
+  email: string;
+  phone: string;
+  type: string;
+  renewal: string | null;
+};
+
+const MEMBER_STATUSES = ["Active", "Inactive", "Paused"];
+
+export async function getMembers(): Promise<Member[]> {
+  const recs = await fetchAll("Members", {}, 0);
+  return recs
+    .filter((r) => r.fields.Name)
+    .map((r) => ({
+      id: r.id,
+      name: (r.fields.Name as string) ?? "",
+      status: (r.fields.Status as string) ?? "",
+      email: (r.fields.Email as string) ?? "",
+      phone: (r.fields.Phone as string) ?? "",
+      type: (r.fields["Membership Type"] as string) ?? "",
+      renewal: (r.fields["Renewal Date"] as string) ?? null,
+    }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+export async function addMember(m: {
+  name: string;
+  email?: string;
+  phone?: string;
+  type?: string;
+}): Promise<void> {
+  const res = await fetch(`${API}/Members`, {
+    method: "POST",
+    headers: { ...authHeaders, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      typecast: true,
+      fields: {
+        Name: m.name,
+        Email: m.email || undefined,
+        Phone: m.phone || undefined,
+        "Membership Type": m.type || undefined,
+        Status: "Active",
+        "Start Date": toISO(new Date()),
+      },
+    }),
+  });
+  if (!res.ok) {
+    throw new Error(`addMember failed (${res.status}): ${await res.text()}`);
+  }
+}
+
+export async function setMemberStatus(
+  id: string,
+  status: string,
+): Promise<void> {
+  if (!MEMBER_STATUSES.includes(status)) throw new Error("Invalid status");
+  const res = await fetch(`${API}/Members/${id}`, {
+    method: "PATCH",
+    headers: { ...authHeaders, "Content-Type": "application/json" },
+    body: JSON.stringify({ fields: { Status: status } }),
+  });
+  if (!res.ok) {
+    throw new Error(`setMemberStatus failed (${res.status}): ${await res.text()}`);
   }
 }

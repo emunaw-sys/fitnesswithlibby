@@ -1,0 +1,353 @@
+/* Studio Admin — simple, mobile-first UI for Libby */
+
+.ad,
+.ad-login {
+  --ad-ink: #2a1526;
+  --ad-muted: #8a7b86;
+  --ad-line: #ece5ea;
+  --ad-accent: #b6215f;
+  --ad-bg: #faf7f9;
+  font-family:
+    ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  color: var(--ad-ink);
+  -webkit-text-size-adjust: 100%;
+}
+
+/* ---- login ---- */
+.ad-login {
+  min-height: 100dvh;
+  display: grid;
+  place-items: center;
+  background: var(--ad-bg);
+  padding: 24px;
+}
+.ad-login-card {
+  width: 100%;
+  max-width: 360px;
+  background: #fff;
+  border: 1px solid var(--ad-line);
+  border-radius: 18px;
+  padding: 28px 24px;
+  box-shadow: 0 12px 40px rgba(42, 21, 38, 0.08);
+  text-align: center;
+}
+.ad-login-card h1 {
+  font-size: 22px;
+  margin: 0 0 6px;
+}
+.ad-login-card p {
+  color: var(--ad-muted);
+  font-size: 14px;
+  margin: 0 0 18px;
+}
+.ad-login-card input,
+.ad-form input,
+.ad-form select {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 13px 14px;
+  font-size: 16px; /* keeps iOS from zooming */
+  border: 1px solid var(--ad-line);
+  border-radius: 12px;
+  background: #fff;
+  color: var(--ad-ink);
+}
+.ad-login-card button,
+.ad-form-actions button[type="submit"] {
+  width: 100%;
+  margin-top: 14px;
+  padding: 14px;
+  font-size: 16px;
+  font-weight: 600;
+  color: #fff;
+  background: var(--ad-accent);
+  border: none;
+  border-radius: 12px;
+  cursor: pointer;
+}
+.ad-login-card button:disabled {
+  opacity: 0.5;
+}
+.ad-error {
+  color: #b3261e;
+  font-size: 13px;
+  margin: 12px 0 0;
+}
+
+/* ---- shell ---- */
+.ad {
+  max-width: 640px;
+  margin: 0 auto;
+  padding: 18px 16px 60px;
+  background: var(--ad-bg);
+  min-height: 100dvh;
+}
+.ad-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.ad-kicker {
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ad-accent);
+  font-weight: 600;
+}
+.ad-top h1 {
+  font-size: 24px;
+  margin: 2px 0 0;
+}
+.ad-logout {
+  background: #fff;
+  border: 1px solid var(--ad-line);
+  border-radius: 10px;
+  padding: 8px 12px;
+  font-size: 13px;
+  color: var(--ad-muted);
+  cursor: pointer;
+}
+
+.ad-tabs {
+  display: flex;
+  gap: 8px;
+  background: #f0e9ee;
+  padding: 4px;
+  border-radius: 12px;
+  margin-bottom: 16px;
+}
+.ad-tabs button {
+  flex: 1;
+  padding: 10px;
+  font-size: 14px;
+  font-weight: 600;
+  border: none;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--ad-muted);
+  cursor: pointer;
+}
+.ad-tabs button.on {
+  background: #fff;
+  color: var(--ad-ink);
+  box-shadow: 0 1px 3px rgba(42, 21, 38, 0.1);
+}
+
+.ad-msg {
+  background: #fff4d6;
+  border: 1px solid #f2d98a;
+  color: #7a5a00;
+  padding: 10px 12px;
+  border-radius: 10px;
+  font-size: 13px;
+  margin: 0 0 14px;
+}
+.ad-empty,
+.ad-none {
+  color: var(--ad-muted);
+  font-size: 14px;
+}
+.ad-none {
+  margin: 4px 0 0;
+}
+
+/* ---- add forms ---- */
+.ad-add-toggle {
+  width: 100%;
+  padding: 13px;
+  margin-bottom: 16px;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--ad-accent);
+  background: #fff;
+  border: 1.5px dashed #e3c3d3;
+  border-radius: 12px;
+  cursor: pointer;
+}
+.ad-form {
+  background: #fff;
+  border: 1px solid var(--ad-line);
+  border-radius: 14px;
+  padding: 18px 16px;
+  margin-bottom: 18px;
+}
+.ad-form h3 {
+  margin: 0 0 12px;
+  font-size: 16px;
+}
+.ad-form label {
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ad-ink);
+  margin-bottom: 12px;
+}
+.ad-form label input,
+.ad-form label select {
+  margin-top: 5px;
+  font-weight: 400;
+}
+.ad-opt {
+  color: var(--ad-muted);
+  font-weight: 400;
+}
+.ad-form-actions {
+  display: flex;
+  gap: 10px;
+}
+.ad-form-actions button {
+  flex: 1;
+}
+.ad-form-actions .ad-cancel {
+  background: #f4eef1;
+  color: var(--ad-muted);
+  border: none;
+  border-radius: 12px;
+  padding: 14px;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.ad-form-actions button[type="submit"]:disabled {
+  opacity: 0.5;
+}
+
+/* ---- class cards ---- */
+.ad-class {
+  background: #fff;
+  border: 1px solid var(--ad-line);
+  border-radius: 14px;
+  padding: 16px;
+  margin-bottom: 14px;
+}
+.ad-class-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.ad-class-head h2 {
+  font-size: 17px;
+  margin: 0;
+}
+.ad-when {
+  font-size: 13px;
+  color: var(--ad-muted);
+}
+.ad-spots {
+  flex-shrink: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: #2e7d32;
+  background: #eaf6eb;
+  padding: 5px 9px;
+  border-radius: 999px;
+}
+.ad-spots.full {
+  color: #b3261e;
+  background: #fbe9e7;
+}
+
+.ad-people,
+.ad-mlist {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.ad-people li,
+.ad-mlist li {
+  padding: 12px 0;
+  border-top: 1px solid var(--ad-line);
+}
+.ad-people li.cancelled .ad-name {
+  text-decoration: line-through;
+  color: var(--ad-muted);
+}
+.ad-person {
+  margin-bottom: 8px;
+}
+.ad-name {
+  font-size: 15px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.ad-badge {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  padding: 2px 7px;
+  border-radius: 999px;
+}
+.ad-badge.member {
+  background: #e7edff;
+  color: #2a49b8;
+}
+.ad-badge.first {
+  background: #fff0d6;
+  color: #8a5a00;
+}
+.ad-phone {
+  display: block;
+  font-size: 13px;
+  color: var(--ad-muted);
+  margin-top: 2px;
+}
+
+/* ---- action buttons ---- */
+.ad-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.ad-mark {
+  flex: 1;
+  min-width: 84px;
+  padding: 11px 8px;
+  font-size: 13px;
+  font-weight: 600;
+  border: 1px solid var(--ad-line);
+  border-radius: 10px;
+  background: #fff;
+  color: var(--ad-muted);
+  cursor: pointer;
+}
+.ad-mark:disabled {
+  opacity: 0.55;
+}
+.ad-mark.attended.on {
+  background: #e7f6e9;
+  border-color: #9bd6a4;
+  color: #1f7a2e;
+}
+.ad-mark.noshow.on {
+  background: #fbe9e7;
+  border-color: #f0a9a0;
+  color: #b3261e;
+}
+.ad-mark.cancelled.on {
+  background: #eee;
+  border-color: #ccc;
+  color: #555;
+}
+.ad-mark.active.on {
+  background: #e7f6e9;
+  border-color: #9bd6a4;
+  color: #1f7a2e;
+}
+.ad-mark.paused.on {
+  background: #fff4d6;
+  border-color: #f2d98a;
+  color: #8a5a00;
+}
+.ad-mark.inactive.on {
+  background: #eee;
+  border-color: #ccc;
+  color: #555;
+}
