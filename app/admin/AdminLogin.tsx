@@ -35,6 +35,12 @@ export default function AdminLogin() {
   return (
     <div className="ad-login">
       <form className="ad-login-card" onSubmit={submit}>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          className="ad-login-logo"
+          src="/logo-libby-black.png"
+          alt="Fitness with Libby"
+        />
         <h1>Studio Admin</h1>
         <p>Enter your password to manage classes and members.</p>
         <input

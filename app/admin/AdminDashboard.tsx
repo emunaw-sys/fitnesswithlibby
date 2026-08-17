@@ -120,16 +120,22 @@ function Home({
   const activeMembers = members.filter((m) => m.status === "Active").length;
   return (
     <div className="ad">
-      <div className="ad-top">
-        <div>
-          <span className="ad-kicker">Fitness with Libby</span>
-          <h1>Studio Admin</h1>
-        </div>
+      <div className="ad-home-top">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          className="ad-logo"
+          src="/logo-libby-black.png"
+          alt="Fitness with Libby"
+        />
         <button className="ad-logout" onClick={onLogout}>
           Log out
         </button>
       </div>
-      <p className="ad-lead">What would you like to do?</p>
+      <div className="ad-welcome">
+        <p className="ad-hello">Welcome back</p>
+        <h1 className="ad-libby">Libby!</h1>
+        <p>What would you like to do today?</p>
+      </div>
       <div className="ad-home">
         <button className="ad-home-card" onClick={() => onGo("week")}>
           <span className="ad-home-title">This week&rsquo;s classes</span>
