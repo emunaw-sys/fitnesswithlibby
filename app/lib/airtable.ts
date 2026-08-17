@@ -212,7 +212,7 @@ export async function getSchedule(): Promise<DaySchedule[]> {
   for (const rec of sessions) {
     const day = rec.fields.Day as string | undefined;
     const name = rec.fields.Name as string | undefined;
-    if (!day || !name) continue;
+    if (!day || !name || rec.fields.Archived) continue;
 
     const occ = nextOccurrence(day);
     const capacity = (rec.fields.Capacity as number | undefined) ?? 0;
@@ -330,7 +330,7 @@ export type RosterClass = {
 };
 
 /** This week's classes, each with the people booked in — for the roster. */
-export async function getRoster(): Promise<RosterClass[]> {
+export async function getRoster(weekOffset = 0): Promise<RosterClass[]> {
   const [sessions, bookings] = await Promise.all([
     fetchAll("Sessions", {}, 0),
     fetchAll(
@@ -368,8 +368,9 @@ export async function getRoster(): Promise<RosterClass[]> {
   for (const rec of sessions) {
     const day = rec.fields.Day as string | undefined;
     const name = rec.fields.Name as string | undefined;
-    if (!day || !name) continue;
+    if (!day || !name || rec.fields.Archived) continue;
     const occ = nextOccurrence(day);
+    occ.setDate(occ.getDate() + 7 * weekOffset);
     const list = byKey.get(`${rec.id}|${toISO(occ)}`) ?? [];
     const active = list.filter((b) => b.attendance !== "Cancelled").length;
     const capacity = (rec.fields.Capacity as number | undefined) ?? 0;
@@ -467,6 +468,13 @@ export async function createManualBooking(b: ManualBooking): Promise<number> {
   return weeks;
 }
 
+export type MonthTally = {
+  attended: number;
+  noShow: number;
+  cancelled: number;
+  booked: number;
+};
+
 export type Member = {
   id: string;
   name: string;
@@ -475,12 +483,44 @@ export type Member = {
   phone: string;
   type: string;
   renewal: string | null;
+  month: MonthTally; // this calendar month's attendance
 };
 
 const MEMBER_STATUSES = ["Active", "Inactive", "Paused"];
 
 export async function getMembers(): Promise<Member[]> {
-  const recs = await fetchAll("Members", {}, 0);
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = now.getMonth() + 1; // 1–12
+
+  const [recs, bookings] = await Promise.all([
+    fetchAll("Members", {}, 0),
+    fetchAll(
+      "Booking",
+      {
+        filterByFormula: `AND(YEAR({Class Date}) = ${year}, MONTH({Class Date}) = ${month})`,
+      },
+      0,
+    ),
+  ]);
+
+  // Tally this month's bookings per member, by attendance status.
+  const tally = new Map<string, MonthTally>();
+  for (const b of bookings) {
+    const links = b.fields["Member"];
+    if (!Array.isArray(links)) continue;
+    const status = (b.fields["Attendance"] as string) ?? "Booked";
+    for (const mid of links as string[]) {
+      const t =
+        tally.get(mid) ?? { attended: 0, noShow: 0, cancelled: 0, booked: 0 };
+      if (status === "Attended") t.attended++;
+      else if (status === "No-show") t.noShow++;
+      else if (status === "Cancelled") t.cancelled++;
+      else t.booked++;
+      tally.set(mid, t);
+    }
+  }
+
   return recs
     .filter((r) => r.fields.Name)
     .map((r) => ({
@@ -491,6 +531,12 @@ export async function getMembers(): Promise<Member[]> {
       phone: (r.fields.Phone as string) ?? "",
       type: (r.fields["Membership Type"] as string) ?? "",
       renewal: (r.fields["Renewal Date"] as string) ?? null,
+      month: tally.get(r.id) ?? {
+        attended: 0,
+        noShow: 0,
+        cancelled: 0,
+        booked: 0,
+      },
     }))
     .sort((a, b) => a.name.localeCompare(b.name));
 }
@@ -534,4 +580,146 @@ export async function setMemberStatus(
   if (!res.ok) {
     throw new Error(`setMemberStatus failed (${res.status}): ${await res.text()}`);
   }
+}
+
+/* ---------------- Admin: classes (add / archive) ---------------- */
+
+export type StudioClass = {
+  id: string;
+  day: string;
+  time: string;
+  name: string;
+  capacity: number;
+};
+
+/** Active (non-archived) classes, for the manage-classes screen. */
+export async function getClasses(): Promise<StudioClass[]> {
+  const recs = await fetchAll("Sessions", {}, 0);
+  return recs
+    .filter((r) => r.fields.Name && !r.fields.Archived)
+    .map((r) => ({
+      id: r.id,
+      day: (r.fields.Day as string) ?? "",
+      time: (r.fields.Time as string) ?? "",
+      name: (r.fields.Name as string) ?? "",
+      capacity: (r.fields.Capacity as number) ?? 0,
+    }))
+    .sort(
+      (a, b) =>
+        DAY_ORDER.indexOf(a.day) - DAY_ORDER.indexOf(b.day) ||
+        timeToMinutes(a.time) - timeToMinutes(b.time),
+    );
+}
+
+export async function addClass(c: {
+  name: string;
+  day: string;
+  time: string;
+  capacity: number;
+}): Promise<void> {
+  const res = await fetch(`${API}/Sessions`, {
+    method: "POST",
+    headers: { ...authHeaders, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      typecast: true, // create the Day option if it's new
+      fields: {
+        Name: c.name,
+        Day: c.day,
+        Time: c.time,
+        Capacity: c.capacity,
+      },
+    }),
+  });
+  if (!res.ok) {
+    throw new Error(`addClass failed (${res.status}): ${await res.text()}`);
+  }
+}
+
+/** Archive (hide) or restore a class. Bookings/history are preserved. */
+export async function setClassArchived(
+  id: string,
+  archived: boolean,
+): Promise<void> {
+  const res = await fetch(`${API}/Sessions/${id}`, {
+    method: "PATCH",
+    headers: { ...authHeaders, "Content-Type": "application/json" },
+    body: JSON.stringify({ fields: { Archived: archived } }),
+  });
+  if (!res.ok) {
+    throw new Error(`setClassArchived failed (${res.status}): ${await res.text()}`);
+  }
+}
+
+/* ---------------- Admin: whole-month overview ---------------- */
+
+export type MonthClass = {
+  sessionId: string;
+  name: string;
+  time: string;
+  booked: number;
+  capacity: number;
+};
+
+export type MonthDay = {
+  date: string; // ISO
+  label: string; // e.g. "Sun 3 Aug"
+  classes: MonthClass[];
+};
+
+/** Every class date in the current calendar month, with booked counts. */
+export async function getMonthRoster(): Promise<MonthDay[]> {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = now.getMonth() + 1; // 1–12
+
+  const [sessions, bookings] = await Promise.all([
+    fetchAll("Sessions", {}, 0),
+    fetchAll(
+      "Booking",
+      {
+        filterByFormula: `AND(YEAR({Class Date}) = ${year}, MONTH({Class Date}) = ${month})`,
+      },
+      0,
+    ),
+  ]);
+
+  const counts = new Map<string, number>();
+  for (const b of bookings) {
+    if (b.fields["Attendance"] === "Cancelled") continue;
+    const cd = b.fields["Class Date"];
+    const links = b.fields["Sessions"];
+    if (typeof cd !== "string" || !Array.isArray(links)) continue;
+    for (const sid of links as string[]) {
+      const key = `${sid}|${cd}`;
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    }
+  }
+
+  const active = sessions.filter((s) => s.fields.Name && !s.fields.Archived);
+  const first = new Date(year, month - 1, 1);
+  const last = new Date(year, month, 0); // last day of the month
+  const days: MonthDay[] = [];
+
+  for (let d = new Date(first); d <= last; d.setDate(d.getDate() + 1)) {
+    const dayName = DAY_ORDER[d.getDay()];
+    const iso = toISO(d);
+    const classes = active
+      .filter((s) => s.fields.Day === dayName)
+      .map((s) => ({
+        sessionId: s.id,
+        name: (s.fields.Name as string) ?? "",
+        time: (s.fields.Time as string) ?? "",
+        capacity: (s.fields.Capacity as number) ?? 0,
+        booked: counts.get(`${s.id}|${iso}`) ?? 0,
+      }))
+      .sort((a, b) => timeToMinutes(a.time) - timeToMinutes(b.time));
+    if (classes.length) {
+      days.push({
+        date: iso,
+        label: `${d.toLocaleDateString("en-GB", { weekday: "short" })} ${formatDate(d)}`,
+        classes,
+      });
+    }
+  }
+  return days;
 }
