@@ -125,7 +125,6 @@ export default function BookingFlow({ schedule }: { schedule: DaySchedule[] }) {
         <p className="bf-done-script">See you in class!</p>
         <p className="bf-done-lead">
           A confirmation is on its way to <strong>{confirmed.email}</strong>.
-          Libby will send a reminder the evening before.
         </p>
 
         <div className="bf-summary">
@@ -140,10 +139,28 @@ export default function BookingFlow({ schedule }: { schedule: DaySchedule[] }) {
             <dd>{confirmed.name}</dd>
           </dl>
           <div className="bf-next">
+            <strong>How to pay</strong>
+            <br />
+            Payment can be done in one of three ways:
+            <ol className="bf-pay">
+              <li>Pay on site, in cash, to Libby.</li>
+              <li>
+                Pay via Bit to <strong>055 684 0335</strong>.
+              </li>
+              <li>
+                Bank transfer to <strong>Solomons</strong> — Mizrahi 20, snif
+                594, account 180913.
+              </li>
+            </ol>
+          </div>
+
+          <div className="bf-next">
             <strong>Need to change or cancel?</strong>
             <br />
-            Reply to your confirmation email or message Libby directly — she
-            would always rather know, so someone else can take the place.
+            Cancellations can be done up to 24 hours before the booking. Any
+            class not cancelled within 24 hours will be charged in full.
+            <br />
+            Email or contact Libby directly to cancel — she needs to know.
           </div>
         </div>
 
@@ -287,9 +304,9 @@ export default function BookingFlow({ schedule }: { schedule: DaySchedule[] }) {
           {details.firstTime && (
             <div className="bf-note">
               <strong>Lovely — Libby will look out for you.</strong>{" "}
-              Come in whatever you&rsquo;re comfortable moving in, bring water and a
-              towel, and arrive five minutes early so she can say hello properly.
-              No experience needed, and nobody is watching anyone else.
+              Come in whatever you&rsquo;re comfortable moving in, bring water,
+              and arrive five minutes early so she can say hello properly. No
+              experience needed, and nobody is watching anyone else.
             </div>
           )}
         </div>

@@ -998,6 +998,15 @@
     max-width:48ch;
   }
   .r-body{position:relative;z-index:1}
+  /* whole-card link — sits over the card, so the block itself is clickable */
+  .r-hit{
+    position:absolute;inset:0;z-index:2;
+    border-radius:22px;cursor:pointer;
+  }
+  .r-hit:focus-visible{outline:2px solid #fff;outline-offset:-8px}
+  .r-card:has(.r-hit:hover){
+    box-shadow:0 1px 2px rgba(51,18,48,.05), 0 44px 74px -36px rgba(51,18,48,.45);
+  }
   .r-cta{
     display:inline-block;margin-top:24px;
     font-family:var(--font-bebas),sans-serif;font-size:17px;letter-spacing:.14em;
@@ -1082,7 +1091,12 @@
     padding:clamp(30px,3.4vw,48px);
     display:flex;flex-direction:column;
     text-align:center;
+    text-decoration:none;
+    transition:transform .22s,box-shadow .3s;
   }
+  a.m-card:hover{transform:translateY(-3px)}
+  a.m-card.light:hover{box-shadow:0 26px 50px -30px rgba(51,18,48,.4)}
+  a.m-card.feature:hover{box-shadow:0 40px 70px -30px rgba(222,33,96,.5)}
   .m-card.light{
     background:#FFFDFB;
     border:1px solid rgba(51,18,48,.14);
@@ -1871,6 +1885,12 @@ html, body { max-width: 100%; }
   font-size:14px; font-weight:300; line-height:1.75; color:rgba(51,18,48,.7);
 }
 .bf-next strong{ color:var(--plum); font-weight:600; }
+.bf-next + .bf-next{ margin-top:18px; padding-top:18px; }
+.bf-pay{
+  margin:10px 0 0; padding-left:20px;
+  display:grid; gap:6px;
+}
+.bf-pay li::marker{ color:var(--magenta); font-weight:500; }
 .bf-link{
   display:block; margin:26px auto 0; border:none; background:none; cursor:pointer;
   font-family:var(--font-outfit),sans-serif;

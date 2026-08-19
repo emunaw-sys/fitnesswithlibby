@@ -465,6 +465,7 @@ export function GetStarted() {
 
       <div className="r-cards">
         <div className="r-card rc-1">
+          <a className="r-hit" href="/book" aria-label="Book your first class" />
           <div className="r-body">
             <div className="r-num">01</div>
             <h3>Book Your First Class</h3>
@@ -484,6 +485,7 @@ export function GetStarted() {
         </div>
 
         <div className="r-card rc-2">
+          <a className="r-hit" href="/book" aria-label="Book your first class" />
           <div className="r-body">
             <div className="r-num">02</div>
             <h3>Come And Feel It For Yourself</h3>
@@ -544,14 +546,14 @@ export function Membership() {
       </div>
 
       <div className="m-cards">
-        <div className="m-card light">
+        <a className="m-card light" href="/book">
           <div className="m-label">1 Class / Week</div>
           <div className="m-price">
             ₪160 <small>/ MONTH</small>
           </div>
           <p>Your weekly reset. One class, every week, consistently.</p>
-        </div>
-        <div className="m-card feature">
+        </a>
+        <a className="m-card feature" href="/book">
           <div className="m-label">2 Classes / Week</div>
           <div className="m-price">
             ₪280 <small>/ MONTH</small>
@@ -560,13 +562,12 @@ export function Membership() {
             For when you&rsquo;re ready to go further. Twice the sessions, twice
             the results.
           </p>
-        </div>
+        </a>
       </div>
 
       <p className="m-foot">
         Your first class is a single drop-in — no membership required. When
-        you&rsquo;re ready, join a membership and keep coming. No payment runs on
-        the site; Libby will be in touch.
+        you&rsquo;re ready, join a membership and keep coming.
       </p>
       <p className="m-pt">
         Personal training available separately — enquire directly for details
@@ -622,9 +623,6 @@ export function FinalCta() {
             Let&rsquo;s Talk
           </button>
           <p className="c-status" role="status" aria-live="polite" />
-          <p className="c-note">
-            No payment runs on the site — Libby will be in touch.
-          </p>
         </form>
       </div>
     </section>
