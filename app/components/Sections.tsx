@@ -598,6 +598,7 @@ export function FinalCta() {
           <button className="c-submit" type="submit">
             Let&rsquo;s Talk
           </button>
+          <p className="c-status" role="status" aria-live="polite" />
           <p className="c-note">
             No payment runs on the site — Libby will be in touch.
           </p>

@@ -723,3 +723,35 @@ export async function getMonthRoster(): Promise<MonthDay[]> {
   }
   return days;
 }
+
+/* ---------------- Website contact form ---------------- */
+
+export type Enquiry = {
+  name: string;
+  email: string;
+  phone?: string;
+  interest?: string;
+  message?: string;
+};
+
+/** Save a contact-form submission to the Enquiries table. */
+export async function createEnquiry(e: Enquiry): Promise<void> {
+  const res = await fetch(`${API}/Enquiries`, {
+    method: "POST",
+    headers: { ...authHeaders, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      typecast: true,
+      fields: {
+        Name: e.name,
+        Email: e.email,
+        Phone: e.phone || undefined,
+        "Interested In": e.interest || undefined,
+        Message: e.message || undefined,
+        Status: "New",
+      },
+    }),
+  });
+  if (!res.ok) {
+    throw new Error(`createEnquiry failed (${res.status}): ${await res.text()}`);
+  }
+}

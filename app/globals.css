@@ -1248,6 +1248,20 @@
     transition:background .25s,transform .2s,box-shadow .25s;
   }
   .c-submit:hover{background:var(--plum);transform:translateY(-1px)}
+  .c-submit:disabled{opacity:.65;cursor:default;transform:none}
+  .c-status{
+    margin-top:12px;text-align:center;
+    font-size:13px;font-weight:500;color:#b3261e;
+  }
+  .c-status:empty{display:none}
+  .c-done{
+    text-align:center;padding:26px 8px;
+  }
+  .c-done h3{
+    font-family:var(--font-bebas),sans-serif;font-size:26px;letter-spacing:.04em;
+    color:var(--plum);margin:0 0 8px;
+  }
+  .c-done p{color:rgba(51,18,48,.7);font-size:15px;margin:0}
   .c-note{
     margin-top:14px;
     text-align:center;

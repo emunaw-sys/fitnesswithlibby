@@ -245,10 +245,13 @@ export default function SiteInteractions() {
       });
     }
 
-    /* ---- contact form interest chips + submit guard ---- */
+    /* ---- contact form: single-select interest chips + real submit ---- */
     const chips = Array.from(document.querySelectorAll<HTMLElement>(".c-chip"));
     const chipHandlers = chips.map((chip) => {
-      const h = () => chip.classList.toggle("active");
+      const h = () => {
+        chips.forEach((c) => c.classList.remove("active"));
+        chip.classList.add("active");
+      };
       chip.addEventListener("click", h);
       return { chip, h };
     });
@@ -257,7 +260,49 @@ export default function SiteInteractions() {
     );
 
     const form = document.querySelector<HTMLFormElement>(".c-form");
-    const onSubmit = (e: Event) => e.preventDefault();
+    const onSubmit = async (e: Event) => {
+      e.preventDefault();
+      if (!form) return;
+      const btn = form.querySelector<HTMLButtonElement>(".c-submit");
+      const status = form.querySelector<HTMLElement>(".c-status");
+      const val = (id: string) =>
+        (document.getElementById(id) as HTMLInputElement | null)?.value.trim() ??
+        "";
+      const name = val("cf-name");
+      const email = val("cf-email");
+      const phone = val("cf-phone");
+      const message = val("cf-msg");
+      const interest =
+        form.querySelector<HTMLElement>(".c-chip.active")?.textContent?.trim() ??
+        "";
+
+      if (status) status.textContent = "";
+      if (!name || !email) {
+        if (status) status.textContent = "Please add your name and email.";
+        return;
+      }
+      if (!btn) return;
+      const label = btn.textContent;
+      btn.disabled = true;
+      btn.textContent = "Sending…";
+      try {
+        const res = await fetch("/api/contact", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name, email, phone, interest, message }),
+        });
+        if (!res.ok) throw new Error();
+        form.innerHTML =
+          '<div class="c-done"><h3>Thank you &mdash; you&rsquo;re in touch!</h3>' +
+          "<p>Libby has your message and will get back to you soon.</p></div>";
+      } catch {
+        btn.disabled = false;
+        btn.textContent = label;
+        if (status)
+          status.textContent =
+            "Sorry, that didn't send. Please email Libby directly at Libbysolomons71@gmail.com.";
+      }
+    };
     form?.addEventListener("submit", onSubmit);
     cleanups.push(() => form?.removeEventListener("submit", onSubmit));
 
