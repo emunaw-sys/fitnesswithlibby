@@ -38,7 +38,7 @@ export default function AdminLogin() {
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
           className="ad-login-logo"
-          src="/logo-libby-black.png"
+          src="/logo-libby-black.webp"
           alt="Fitness with Libby"
         />
         <h1>Studio Admin</h1>

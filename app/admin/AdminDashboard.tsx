@@ -124,7 +124,7 @@ function Home({
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
           className="ad-logo"
-          src="/logo-libby-black.png"
+          src="/logo-libby-black.webp"
           alt="Fitness with Libby"
         />
         <button className="ad-logout" onClick={onLogout}>

@@ -4,6 +4,9 @@ import Navbar from "./Navbar";
 export default function Hero() {
   return (
     <section className="hero">
+      {/* the hero image is a CSS background, so the preload scanner cannot
+          find it on its own — this is the LCP element, so point at it early */}
+      <link rel="preload" as="image" href="/hero-final.webp" fetchPriority="high" />
       <div className="hero-bg" />
 
       <Navbar />

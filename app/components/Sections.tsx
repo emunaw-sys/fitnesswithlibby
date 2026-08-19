@@ -97,7 +97,14 @@ export function About() {
     <section className="meet" id="about">
       <div className="meet-inner">
         <div className="meet-photo">
-          <img src="/libby.png" alt="Libby, founder of Fitness With Libby" />
+          <img
+            src="/libby.webp"
+            alt="Libby, founder of Fitness With Libby"
+            width={1000}
+            height={1151}
+            loading="lazy"
+            decoding="async"
+          />
         </div>
 
         <div className="meet-copy">
@@ -202,7 +209,7 @@ export function Classes() {
         </div>
 
         <div className="b-style s1">
-          <img className="ph" src="/style-strengthen-tone.png" alt="" />
+          <img className="ph" src="/style-strengthen-tone.webp" alt="" loading="lazy" decoding="async" />
           <div className="shade" />
           <span className="num">01</span>
           <svg className="doodle br" width="26" height="18" viewBox="0 0 26 18" fill="none">
@@ -223,7 +230,7 @@ export function Classes() {
         </div>
 
         <div className="b-style s3">
-          <img className="ph" src="/style-pilates.png" alt="" />
+          <img className="ph" src="/style-pilates.webp" alt="" loading="lazy" decoding="async" />
           <div className="shade" />
           <span className="num">03</span>
           <span className="name">Pilates</span>
@@ -247,7 +254,7 @@ export function Classes() {
         </div>
 
         <div className="b-style s7">
-          <img className="ph" src="/style-step.png" alt="" />
+          <img className="ph" src="/style-step.webp" alt="" loading="lazy" decoding="async" />
           <div className="shade" />
           <span className="num">07</span>
           <span className="name">Step</span>
@@ -464,7 +471,15 @@ export function GetStarted() {
             <p>Pick a time that fits your week. No commitment, no pressure.</p>
           </div>
           <div className="r-float">
-            <img className="r-img" src="/calendar-3d.png" alt="Calendar" />
+            <img
+              className="r-img"
+              src="/calendar-3d.webp"
+              alt="Calendar"
+              width={480}
+              height={320}
+              loading="lazy"
+              decoding="async"
+            />
           </div>
         </div>
 
@@ -478,7 +493,15 @@ export function GetStarted() {
             </p>
           </div>
           <div className="r-float">
-            <img className="r-img" src="/dumbbells.png" alt="Dumbbells" />
+            <img
+              className="r-img"
+              src="/dumbbells.webp"
+              alt="Dumbbells"
+              width={480}
+              height={480}
+              loading="lazy"
+              decoding="async"
+            />
           </div>
         </div>
 
@@ -615,7 +638,15 @@ export function Footer() {
       <div className="footer-inner">
         <div className="footer-top">
           <div className="footer-brand">
-            <img className="footer-logo" src="/logo-libby-black.png" alt="Fitness With Libby" />
+            <img
+              className="footer-logo"
+              src="/logo-libby-black.webp"
+              alt="Fitness With Libby"
+              width={200}
+              height={182}
+              loading="lazy"
+              decoding="async"
+            />
             <p className="footer-mission">
               Movement that builds you up — physically and mentally. A warm,
               private studio in Beit Shemesh.

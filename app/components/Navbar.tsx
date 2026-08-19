@@ -20,8 +20,16 @@ export default function Navbar() {
   return (
     <nav>
       <a className="logo" href="/" onClick={close}>
+        {/* Lighthouse reports this logo as the LCP element, so it stays
+            eager and high-priority rather than queueing behind everything else */}
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src="/logo-libby-black.png" alt="Fitness With Libby" />
+        <img
+          src="/logo-libby-black.webp"
+          alt="Fitness With Libby"
+          width={200}
+          height={182}
+          fetchPriority="high"
+        />
       </a>
 
       {/* Desktop links */}
