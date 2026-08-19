@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { revalidatePath } from "next/cache";
 import { isAuthed } from "@/app/lib/adminAuth";
 import { addClass, setClassArchived } from "@/app/lib/airtable";
 
@@ -24,6 +25,7 @@ export async function POST(request: Request) {
   }
   try {
     await addClass({ name: name.trim(), day, time: time.trim(), capacity: cap });
+    revalidatePath("/admin");
     return NextResponse.json({ ok: true });
   } catch (err) {
     console.error("add class failed:", err);
@@ -45,6 +47,7 @@ export async function PATCH(request: Request) {
   }
   try {
     await setClassArchived(body.id, Boolean(body.archived));
+    revalidatePath("/admin");
     return NextResponse.json({ ok: true });
   } catch (err) {
     console.error("archive class failed:", err);

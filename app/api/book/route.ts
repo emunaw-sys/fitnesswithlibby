@@ -36,8 +36,10 @@ export async function POST(request: Request) {
       phone: typeof phone === "string" ? phone.trim() : undefined,
       firstTime: Boolean(firstTime),
     });
-    // Bust the cached schedule so the new "spots left" shows immediately.
+    // Bust the cached schedule so the new "spots left" shows immediately,
+    // and the admin roster too.
     revalidatePath("/book");
+    revalidatePath("/admin");
     return NextResponse.json({ ok: true });
   } catch (err) {
     console.error("Booking failed:", err);

@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { revalidatePath } from "next/cache";
 import { isAuthed } from "@/app/lib/adminAuth";
 import { addMember, setMemberStatus } from "@/app/lib/airtable";
 
@@ -19,6 +20,7 @@ export async function POST(request: Request) {
       phone: typeof phone === "string" ? phone.trim() : undefined,
       type: typeof type === "string" ? type : undefined,
     });
+    revalidatePath("/admin");
     return NextResponse.json({ ok: true });
   } catch (err) {
     console.error("add member failed:", err);
@@ -40,6 +42,7 @@ export async function PATCH(request: Request) {
   }
   try {
     await setMemberStatus(body.id, body.status);
+    revalidatePath("/admin");
     return NextResponse.json({ ok: true });
   } catch (err) {
     console.error("member status update failed:", err);

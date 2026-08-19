@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { revalidatePath } from "next/cache";
 import { isAuthed } from "@/app/lib/adminAuth";
 import { setAttendance } from "@/app/lib/airtable";
 
@@ -16,6 +17,7 @@ export async function POST(request: Request) {
   }
   try {
     await setAttendance(body.bookingId, body.status);
+    revalidatePath("/admin");
     return NextResponse.json({ ok: true });
   } catch (err) {
     console.error("attendance update failed:", err);

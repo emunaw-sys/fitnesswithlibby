@@ -5,7 +5,9 @@ import AdminLogin from "./AdminLogin";
 import AdminDashboard from "./AdminDashboard";
 import "./admin.css";
 
-export const dynamic = "force-dynamic";
+// Reading the auth cookie already makes this page render per-request, so we
+// don't force-dynamic — that lets the Airtable reads use their cached tags
+// (see ADMIN_TAG) to stay inside the free plan's API budget.
 
 export const metadata: Metadata = {
   title: "Studio Admin — Fitness With Libby",

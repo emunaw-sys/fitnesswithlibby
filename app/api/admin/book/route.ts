@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { revalidatePath } from "next/cache";
 import { isAuthed } from "@/app/lib/adminAuth";
 import { createManualBooking } from "@/app/lib/airtable";
 
@@ -24,6 +25,7 @@ export async function POST(request: Request) {
       phone: typeof phone === "string" ? phone.trim() : undefined,
       weeks: typeof weeks === "number" ? weeks : 1,
     });
+    revalidatePath("/admin");
     return NextResponse.json({ ok: true, created });
   } catch (err) {
     console.error("manual booking failed:", err);

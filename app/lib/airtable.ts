@@ -120,6 +120,13 @@ type AirtableRecord = {
 
 const authHeaders = { Authorization: `Bearer ${TOKEN}` };
 
+/* Admin reads are cached for a short window and tagged so any write can
+ * bust them instantly (see revalidateTag in the admin API routes). This
+ * keeps Libby's admin page from re-reading Airtable on every single load,
+ * which protects the free plan's monthly API-call budget. */
+export const ADMIN_TAG = "admin-data";
+const ADMIN_TTL = 60; // seconds
+
 /* Read every record from a table (following pagination).
  * `revalidate` caches the result for N seconds so we don't hit Airtable's
  * API on every single page view — important for staying inside the free
@@ -130,6 +137,7 @@ async function fetchAll(
   table: string,
   params: Record<string, string> = {},
   revalidate = 60,
+  tags?: string[],
 ): Promise<AirtableRecord[]> {
   const out: AirtableRecord[] = [];
   let offset: string | undefined;
@@ -138,7 +146,7 @@ async function fetchAll(
     if (offset) sp.set("offset", offset);
     const res = await fetch(`${API}/${encodeURIComponent(table)}?${sp}`, {
       headers: authHeaders,
-      next: { revalidate },
+      next: tags ? { revalidate, tags } : { revalidate },
     });
     if (!res.ok) {
       throw new Error(
@@ -332,11 +340,12 @@ export type RosterClass = {
 /** This week's classes, each with the people booked in — for the roster. */
 export async function getRoster(weekOffset = 0): Promise<RosterClass[]> {
   const [sessions, bookings] = await Promise.all([
-    fetchAll("Sessions", {}, 0),
+    fetchAll("Sessions", {}, ADMIN_TTL, [ADMIN_TAG]),
     fetchAll(
       "Booking",
       { filterByFormula: "IS_AFTER({Class Date}, DATEADD(TODAY(), -1, 'days'))" },
-      0,
+      ADMIN_TTL,
+      [ADMIN_TAG],
     ),
   ]);
 
@@ -500,7 +509,8 @@ export async function getMembers(): Promise<Member[]> {
       {
         filterByFormula: `AND(YEAR({Class Date}) = ${year}, MONTH({Class Date}) = ${month})`,
       },
-      0,
+      ADMIN_TTL,
+      [ADMIN_TAG],
     ),
   ]);
 
@@ -594,7 +604,7 @@ export type StudioClass = {
 
 /** Active (non-archived) classes, for the manage-classes screen. */
 export async function getClasses(): Promise<StudioClass[]> {
-  const recs = await fetchAll("Sessions", {}, 0);
+  const recs = await fetchAll("Sessions", {}, ADMIN_TTL, [ADMIN_TAG]);
   return recs
     .filter((r) => r.fields.Name && !r.fields.Archived)
     .map((r) => ({
@@ -673,13 +683,14 @@ export async function getMonthRoster(): Promise<MonthDay[]> {
   const month = now.getMonth() + 1; // 1–12
 
   const [sessions, bookings] = await Promise.all([
-    fetchAll("Sessions", {}, 0),
+    fetchAll("Sessions", {}, ADMIN_TTL, [ADMIN_TAG]),
     fetchAll(
       "Booking",
       {
         filterByFormula: `AND(YEAR({Class Date}) = ${year}, MONTH({Class Date}) = ${month})`,
       },
-      0,
+      ADMIN_TTL,
+      [ADMIN_TAG],
     ),
   ]);
 
