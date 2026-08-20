@@ -1,7 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import type { DaySchedule } from "@/app/lib/airtable";
+import { useEffect, useMemo, useState } from "react";
+import { SERIES_WEEKS, type DaySchedule } from "@/app/lib/airtable";
 
 /* ------------------------------------------------------------------ *
  * BOOKING FLOW
@@ -32,18 +32,65 @@ export default function BookingFlow({ schedule }: { schedule: DaySchedule[] }) {
   const [dayIdx, setDayIdx] = useState<number | null>(null);
   const [classIdx, setClassIdx] = useState<number | null>(null);
   const [details, setDetails] = useState<Details>(EMPTY_DETAILS);
+  // The email we've confirmed belongs to an active member. Membership is then
+  // derived rather than mirrored, so a changed address can't leave a stale
+  // "you're a member" behind.
+  const [memberEmail, setMemberEmail] = useState<string | null>(null);
+  const [weeks, setWeeks] = useState(1);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirmed, setConfirmed] = useState<{
     className: string;
     when: string;
+    dates: string[];
     name: string;
     email: string;
+    firstTime: boolean;
   } | null>(null);
+
+  /* Members can book a run of weeks in one go. We ask the server once the
+   * email looks complete, debounced so typing doesn't spend the free plan's
+   * API budget. Non-members simply never see the option. */
+  const email = details.email.trim();
+  const isMember = memberEmail !== null && memberEmail === email;
+
+  useEffect(() => {
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return;
+    let live = true;
+    const t = setTimeout(async () => {
+      try {
+        const res = await fetch("/api/membership", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email }),
+        });
+        const data = await res.json();
+        if (live) setMemberEmail(data?.member ? email : null);
+      } catch {
+        if (live) setMemberEmail(null); // never block a booking over this
+      }
+    }, 500);
+    return () => {
+      live = false;
+      clearTimeout(t);
+    };
+  }, [email]);
 
   const selectedDay = dayIdx === null ? null : schedule[dayIdx];
   const selectedClass =
     selectedDay && classIdx !== null ? selectedDay.classes[classIdx] : null;
+
+  /* How far ahead this class can be booked: stop at the first full week, so
+   * we never offer a series that can't be honoured end to end. */
+  const weeksAvailable = useMemo(() => {
+    if (!selectedClass?.weekSpots) return 1;
+    let n = 0;
+    for (const spots of selectedClass.weekSpots) {
+      if (spots <= 0) break;
+      n++;
+    }
+    return Math.max(1, n);
+  }, [selectedClass]);
 
   const detailsValid =
     selectedClass !== null &&
@@ -56,6 +103,10 @@ export default function BookingFlow({ schedule }: { schedule: DaySchedule[] }) {
     if (!detailsValid) return "Add your name and email to finish";
     return "";
   }, [dayIdx, classIdx, detailsValid]);
+
+  /* What we'll actually book: never more weeks than the class has room for,
+   * and always 1 for anyone who isn't an active member. */
+  const effectiveWeeks = isMember ? Math.min(weeks, weeksAvailable) : 1;
 
   function pickDay(i: number) {
     setDayIdx(i);
@@ -81,17 +132,23 @@ export default function BookingFlow({ schedule }: { schedule: DaySchedule[] }) {
           email: details.email.trim(),
           phone: details.phone.trim(),
           firstTime: details.firstTime,
+          weeks: effectiveWeeks,
         }),
       });
       if (!res.ok) {
         const data = await res.json().catch(() => null);
         throw new Error(data?.error ?? "Something went wrong. Please try again.");
       }
+      const data = await res.json().catch(() => null);
       setConfirmed({
         className: selectedClass.name,
         when: `${selectedDay.day} ${selectedDay.nextDate}, ${selectedClass.time}`,
+        // The server is the authority on what got booked — a week can fill up
+        // between the page loading and the request landing.
+        dates: Array.isArray(data?.dates) ? (data.dates as string[]) : [],
         name: details.name.trim(),
         email: details.email.trim(),
+        firstTime: details.firstTime,
       });
     } catch (err) {
       setError(
@@ -108,6 +165,7 @@ export default function BookingFlow({ schedule }: { schedule: DaySchedule[] }) {
     setDayIdx(null);
     setClassIdx(null);
     setDetails(EMPTY_DETAILS);
+    setWeeks(1);
     setConfirmed(null);
     setError(null);
   }
@@ -124,6 +182,9 @@ export default function BookingFlow({ schedule }: { schedule: DaySchedule[] }) {
         </h2>
         <p className="bf-done-script">See you in class!</p>
         <p className="bf-done-lead">
+          {confirmed.dates.length > 1
+            ? `You're booked into ${confirmed.dates.length} classes. `
+            : ""}
           A confirmation is on its way to <strong>{confirmed.email}</strong>.
         </p>
 
@@ -132,7 +193,19 @@ export default function BookingFlow({ schedule }: { schedule: DaySchedule[] }) {
             <dt>Class</dt>
             <dd>{confirmed.className}</dd>
             <dt>When</dt>
-            <dd>{confirmed.when}</dd>
+            <dd>
+              {confirmed.dates.length > 1 ? (
+                <>
+                  {confirmed.dates.map((d) => (
+                    <span key={d} className="bf-date-row">
+                      {d}
+                    </span>
+                  ))}
+                </>
+              ) : (
+                confirmed.when
+              )}
+            </dd>
             <dt>Where</dt>
             <dd>Beit Shemesh, Gimmel 2</dd>
             <dt>Name</dt>
@@ -141,6 +214,13 @@ export default function BookingFlow({ schedule }: { schedule: DaySchedule[] }) {
           <div className="bf-next">
             <strong>How to pay</strong>
             <br />
+            {confirmed.firstTime && (
+              <>
+                Your first class is a one-off drop-in — <strong>₪45</strong>. No
+                membership required.
+                <br />
+              </>
+            )}
             Payment can be done in one of three ways:
             <ol className="bf-pay">
               <li>Pay on site, in cash, to Libby.</li>
@@ -301,6 +381,38 @@ export default function BookingFlow({ schedule }: { schedule: DaySchedule[] }) {
             />
             <span>This is my first class at the studio</span>
           </label>
+          {isMember && weeksAvailable > 1 && (
+            <div className="bf-series">
+              <span className="bf-series-lab">
+                You&rsquo;re a member — book your place for the next few weeks?
+              </span>
+              <div className="bf-series-opts" role="group">
+                {Array.from({ length: weeksAvailable }, (_, i) => i + 1).map(
+                  (n) => (
+                    <button
+                      key={n}
+                      type="button"
+                      className={`bf-week${effectiveWeeks === n ? " sel" : ""}`}
+                      onClick={() => setWeeks(n)}
+                    >
+                      {n === 1 ? "Just this one" : `${n} weeks`}
+                    </button>
+                  ),
+                )}
+              </div>
+              {effectiveWeeks > 1 && selectedClass && (
+                <p className="bf-series-dates">
+                  {selectedClass.weekDates.slice(0, effectiveWeeks).join(" · ")}
+                </p>
+              )}
+              {weeksAvailable < SERIES_WEEKS && (
+                <p className="bf-series-note">
+                  Booking further ahead isn&rsquo;t possible for this class yet —
+                  a later week is full.
+                </p>
+              )}
+            </div>
+          )}
           {details.firstTime && (
             <div className="bf-note">
               <strong>Lovely — Libby will look out for you.</strong>{" "}

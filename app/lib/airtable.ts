@@ -37,11 +37,23 @@ const TOKEN = process.env.AIRTABLE_TOKEN;
 const BASE = process.env.AIRTABLE_BASE_ID;
 const API = `https://api.airtable.com/v0/${BASE}`;
 
+/* How many consecutive weeks an active member may book in one go. */
+export const SERIES_WEEKS = 4;
+
 export type ClassSession = {
   id: string; // Airtable record id, used to link the booking
   name: string;
   time: string;
   spotsLeft: number;
+  /**
+   * Spots free for each of the next SERIES_WEEKS occurrences, index 0 being
+   * the same one `spotsLeft` describes. Members booking a series need to know
+   * week 3 is full before they commit, and the counts are already in memory
+   * here, so this costs no extra Airtable calls.
+   */
+  weekSpots: number[];
+  /** "Tue 25 Aug" for each of those weeks, for the series picker. */
+  weekDates: string[];
 };
 
 export type DaySchedule = {
@@ -91,6 +103,13 @@ function nextOccurrence(day: string): Date {
   return d;
 }
 
+/* Same weekday, k weeks later. */
+function addWeeks(d: Date, k: number): Date {
+  const out = new Date(d);
+  out.setDate(out.getDate() + 7 * k);
+  return out;
+}
+
 /* Date -> "2026-08-10" (used to match + stamp bookings). */
 function toISO(d: Date): string {
   const y = d.getFullYear();
@@ -102,6 +121,16 @@ function toISO(d: Date): string {
 /* Date -> "10 Aug" (used for display). */
 function formatDate(d: Date): string {
   return d.toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+}
+
+/* "2026-08-25" -> "Tuesday 25 August" (used in the confirmation email). */
+function formatLongDate(iso: string): string {
+  const [y, m, d] = iso.split("-").map(Number);
+  return new Date(y, m - 1, d).toLocaleDateString("en-GB", {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+  });
 }
 
 /* "9:00 am" / "8:30 pm" -> minutes since midnight, for sorting. */
@@ -163,8 +192,16 @@ async function fetchAll(
   return out;
 }
 
-/** Find a Member record id whose email matches (case-insensitive), if any. */
-async function findMemberIdByEmail(email: string): Promise<string | undefined> {
+/**
+ * Look up a Member by email (case-insensitive).
+ * Returns the record id and whether their membership is currently Active —
+ * "Paused" and "Inactive" both count as not active. We key the series
+ * entitlement off Status alone (not Renewal Date) because Status is the field
+ * Libby actually maintains; a stale renewal date would lock out a paying member.
+ */
+async function findMemberByEmail(
+  email: string,
+): Promise<{ id: string; active: boolean } | undefined> {
   if (!email) return undefined;
   try {
     const safe = email.toLowerCase().replace(/['\\]/g, "");
@@ -175,11 +212,28 @@ async function findMemberIdByEmail(email: string): Promise<string | undefined> {
       { headers: authHeaders, cache: "no-store" },
     );
     if (!res.ok) return undefined;
-    const data = (await res.json()) as { records?: { id: string }[] };
-    return data.records?.[0]?.id;
+    const data = (await res.json()) as {
+      records?: { id: string; fields?: Record<string, unknown> }[];
+    };
+    const rec = data.records?.[0];
+    if (!rec) return undefined;
+    return { id: rec.id, active: rec.fields?.["Status"] === "Active" };
   } catch {
     return undefined; // non-fatal
   }
+}
+
+async function findMemberIdByEmail(email: string): Promise<string | undefined> {
+  return (await findMemberByEmail(email))?.id;
+}
+
+/**
+ * Is this email an active member? Backs the booking form's series option.
+ * Deliberately returns a bare boolean and never a name — the endpoint is
+ * public, so it must not become a way to look people up.
+ */
+export async function isActiveMember(email: string): Promise<boolean> {
+  return (await findMemberByEmail(email))?.active === true;
 }
 
 /**
@@ -234,11 +288,24 @@ export async function getSchedule(): Promise<DaySchedule[]> {
         classes: [],
       });
     }
+    // Availability for this and the following weeks. `counts` already holds
+    // every future booking, so this is pure arithmetic — no extra API calls.
+    const weekSpots: number[] = [];
+    const weekDates: string[] = [];
+    for (let k = 0; k < SERIES_WEEKS; k++) {
+      const d = addWeeks(occ, k);
+      const taken = counts.get(`${rec.id}|${toISO(d)}`) ?? 0;
+      weekSpots.push(Math.max(0, capacity - taken));
+      weekDates.push(formatDate(d));
+    }
+
     byDay.get(day)!.classes.push({
       id: rec.id,
       name,
       time: (rec.fields.Time as string | undefined) ?? "",
       spotsLeft: Math.max(0, capacity - booked),
+      weekSpots,
+      weekDates,
     });
   }
 
@@ -257,14 +324,48 @@ export type NewBooking = {
   email: string;
   phone?: string;
   firstTime?: boolean;
+  /** Consecutive weeks to book. Honoured only for active members. */
+  weeks?: number;
 };
+
+/** The requested class(es) filled up — a user-fixable problem, not a fault. */
+export class BookingFullError extends Error {
+  readonly userFacing = true;
+}
+
+/**
+ * Live booking counts for one session across the given dates, read uncached.
+ * Cancelled bookings release their place, matching getSchedule.
+ */
+async function countBookingsFor(
+  sessionId: string,
+  isoDates: string[],
+): Promise<Map<string, number>> {
+  const counts = new Map<string, number>(isoDates.map((d) => [d, 0]));
+  const rows = await fetchAll(
+    "Booking",
+    { filterByFormula: "IS_AFTER({Class Date}, DATEADD(TODAY(), -1, 'days'))" },
+    0, // no cache: this decides whether someone gets the last place
+  );
+  for (const b of rows) {
+    if (b.fields["Attendance"] === "Cancelled") continue;
+    const date = b.fields["Class Date"];
+    const links = b.fields["Sessions"];
+    if (typeof date !== "string" || !Array.isArray(links)) continue;
+    if (!links.includes(sessionId)) continue;
+    if (counts.has(date)) counts.set(date, (counts.get(date) ?? 0) + 1);
+  }
+  return counts;
+}
 
 /**
  * Create a booking, linked to its session, stamped with the class date
  * it was made for, and marked "Booked" (Libby updates this to Attended /
  * No-show after class).
  */
-export async function createBooking(booking: NewBooking): Promise<void> {
+export async function createBooking(
+  booking: NewBooking,
+): Promise<{ dates: string[] }> {
   // Look up the session's day so we stamp the correct upcoming date.
   const sres = await fetch(`${API}/Sessions/${booking.sessionId}`, {
     headers: authHeaders,
@@ -277,33 +378,67 @@ export async function createBooking(booking: NewBooking): Promise<void> {
   }
   const srec = (await sres.json()) as AirtableRecord;
   const day = srec.fields?.Day as string | undefined;
-  const classDate = day ? toISO(nextOccurrence(day)) : undefined;
+  if (!day) throw new Error("That class has no day set.");
   const className = srec.fields?.Name as string | undefined;
   const classTime = srec.fields?.Time as string | undefined;
+  const capacity = (srec.fields?.Capacity as number | undefined) ?? 0;
 
   // If this email matches a member on file, link the booking to them so
   // Libby can tell members apart from drop-ins.
-  const memberId = await findMemberIdByEmail(booking.email);
-  const memberIds = memberId ? [memberId] : undefined;
+  const member = await findMemberByEmail(booking.email);
+  const memberIds = member ? [member.id] : undefined;
+
+  // Booking a series is a members-only entitlement, re-checked here rather
+  // than trusted from the request — the client can send anything.
+  const wanted = Math.min(Math.max(Math.round(booking.weeks ?? 1), 1), SERIES_WEEKS);
+  const weeks = member?.active ? wanted : 1;
+
+  // Which of those weeks actually have room. Availability is re-read
+  // uncached: the cached schedule the client saw may be up to 60s stale, and
+  // two people can pick the last place in that window.
+  const first = nextOccurrence(day);
+  const wantedDates = Array.from({ length: weeks }, (_, k) =>
+    toISO(addWeeks(first, k)),
+  );
+  const taken = await countBookingsFor(booking.sessionId, wantedDates);
+  const openDates = wantedDates.filter((d) => (taken.get(d) ?? 0) < capacity);
+
+  if (openDates.length === 0) {
+    throw new BookingFullError(
+      weeks > 1
+        ? "Those classes filled up while you were booking. Please pick another time."
+        : "That class just filled up. Please pick another time.",
+    );
+  }
+
+  // One email per booking, not per class: only the first record is flagged
+  // for the automation, and it carries the full list of dates.
+  const seriesDates = openDates
+    .map((iso) => `${formatLongDate(iso)}${classTime ? `, ${classTime}` : ""}`)
+    .join("\n");
+
+  const records = openDates.map((iso, i) => ({
+    fields: {
+      Name: booking.name,
+      Email: booking.email,
+      Phone: booking.phone || undefined,
+      "First time?": Boolean(booking.firstTime) && i === 0,
+      Sessions: [booking.sessionId],
+      "Class Date": iso,
+      "Class Name": className,
+      "Class Time": classTime,
+      Attendance: "Booked",
+      Source: "Website",
+      Member: memberIds,
+      Notify: i === 0,
+      "Series Dates": i === 0 ? seriesDates : undefined,
+    },
+  }));
 
   const res = await fetch(`${API}/Booking`, {
     method: "POST",
     headers: { ...authHeaders, "Content-Type": "application/json" },
-    body: JSON.stringify({
-      fields: {
-        Name: booking.name,
-        Email: booking.email,
-        Phone: booking.phone || undefined,
-        "First time?": Boolean(booking.firstTime),
-        Sessions: [booking.sessionId],
-        "Class Date": classDate,
-        "Class Name": className,
-        "Class Time": classTime,
-        Attendance: "Booked",
-        Source: "Website",
-        Member: memberIds,
-      },
-    }),
+    body: JSON.stringify({ records }),
   });
 
   if (!res.ok) {
@@ -311,6 +446,7 @@ export async function createBooking(booking: NewBooking): Promise<void> {
       `Airtable createBooking failed (${res.status}): ${await res.text()}`,
     );
   }
+  return { dates: openDates.map((iso) => formatLongDate(iso)) };
 }
 
 /* ================================================================== *
@@ -459,6 +595,7 @@ export async function createManualBooking(b: ManualBooking): Promise<number> {
         "Class Time": classTime,
         Attendance: "Booked",
         Source: "Manual",
+        Notify: false,
         Member: memberId ? [memberId] : undefined,
       },
     };

@@ -101,7 +101,7 @@ export function About() {
             src="/libby.webp"
             alt="Libby, founder of Fitness With Libby"
             width={1000}
-            height={1151}
+            height={1110}
             loading="lazy"
             decoding="async"
           />
