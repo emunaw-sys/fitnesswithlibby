@@ -650,3 +650,9 @@
     flex: 1;
   }
 }
+
+/* member missing the email the website matches on */
+.ad-warn{
+  display:block; margin-top:4px;
+  font-size:11.5px; letter-spacing:.02em; color:#B3123C;
+}

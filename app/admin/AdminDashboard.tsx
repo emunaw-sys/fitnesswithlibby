@@ -434,6 +434,11 @@ function MembersView({
                 {m.type}
                 {m.email ? ` · ${m.email}` : ""}
               </span>
+              {!m.email && (
+                <span className="ad-warn">
+                  No email — can&rsquo;t book multiple weeks online
+                </span>
+              )}
               <span className="ad-tally">
                 This month: <strong>{m.month.attended}</strong> attended ·{" "}
                 {m.month.noShow} no-show · {m.month.cancelled} cancelled
@@ -495,8 +500,13 @@ function AddMember({ act, busy }: { act: Act; busy: boolean }) {
         <input value={name} onChange={(e) => setName(e.target.value)} required />
       </label>
       <label>
-        Email <span className="ad-opt">optional</span>
-        <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
+        Email <span className="ad-opt">needed to book online</span>
+        <input
+          type="email"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          required
+        />
       </label>
       <label>
         Phone <span className="ad-opt">optional</span>
@@ -514,7 +524,7 @@ function AddMember({ act, busy }: { act: Act; busy: boolean }) {
         <button type="button" className="ad-cancel" onClick={() => setOpen(false)}>
           Cancel
         </button>
-        <button type="submit" disabled={busy || !name}>
+        <button type="submit" disabled={busy || !name || !email}>
           {busy ? "Saving…" : "Add member"}
         </button>
       </div>

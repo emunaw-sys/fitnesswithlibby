@@ -93,12 +93,29 @@ const DAY_INDEX: Record<string, number> = {
 };
 
 /* The next date (today or later) that lands on the given weekday. */
-function nextOccurrence(day: string): Date {
+/**
+ * The next date this class runs.
+ *
+ * Pass the class time wherever it's known: on the day itself, a class whose
+ * start time has already gone by belongs to *next* week, not today —
+ * otherwise a 9am class stays bookable until midnight and lands on Libby's
+ * roster for a session that finished that morning.
+ *
+ * A time we can't parse is left alone rather than guessed at. Rolling a class
+ * forward on a bad read would hide it for a whole week, which is far worse
+ * than the stale-by-a-few-hours behaviour it replaces.
+ */
+function nextOccurrence(day: string, time?: string): Date {
   const now = new Date();
   const d = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const target = DAY_INDEX[day];
   if (target === undefined) return d;
-  const diff = (target - d.getDay() + 7) % 7; // 0..6 days ahead
+  let diff = (target - d.getDay() + 7) % 7; // 0..6 days ahead
+  if (diff === 0 && time) {
+    const startsAt = parseTime(time);
+    const nowMins = now.getHours() * 60 + now.getMinutes();
+    if (startsAt !== null && nowMins >= startsAt) diff = 7;
+  }
   d.setDate(d.getDate() + diff);
   return d;
 }
@@ -133,13 +150,26 @@ function formatLongDate(iso: string): string {
   });
 }
 
-/* "9:00 am" / "8:30 pm" -> minutes since midnight, for sorting. */
+/**
+ * Class times are typed by hand in Airtable and are not consistent —
+ * "9:00 am", "8:45pm" and "9.00am" are all in the base today. Accept a
+ * colon or a dot, an optional space, and an optional :mm.
+ * Returns null when it genuinely can't be read, so callers can decide
+ * whether guessing is safe.
+ */
+function parseTime(t: string): number | null {
+  const m = t.trim().match(/^(\d{1,2})(?:[:.](\d{2}))?\s*([ap])\.?m\.?$/i);
+  if (!m) return null;
+  const hour = parseInt(m[1], 10);
+  const min = parseInt(m[2] ?? "0", 10);
+  if (hour < 1 || hour > 12 || min > 59) return null;
+  const h = hour % 12;
+  return (m[3].toLowerCase() === "p" ? h + 12 : h) * 60 + min;
+}
+
+/* Minutes since midnight, for sorting. Unreadable times sort first. */
 function timeToMinutes(t: string): number {
-  const m = t.trim().match(/^(\d{1,2}):(\d{2})\s*(am|pm)$/i);
-  if (!m) return 0;
-  let h = parseInt(m[1], 10) % 12;
-  if (m[3].toLowerCase() === "pm") h += 12;
-  return h * 60 + parseInt(m[2], 10);
+  return parseTime(t) ?? 0;
 }
 
 type AirtableRecord = {
@@ -269,25 +299,27 @@ export async function getSchedule(): Promise<DaySchedule[]> {
     }
   }
 
-  // Group sessions into day cards with computed dates + spots.
-  const byDay = new Map<string, DaySchedule>();
+  /* Each class has its own next occurrence, because a class that has already
+   * started today belongs to next week while a later class the same day does
+   * not. So build the classes first, then let each day card take the earliest
+   * date among them.
+   *
+   * A class whose own date is later than its day card's has already run today:
+   * it is left off rather than shown under the wrong date, and reappears on
+   * that card tomorrow once the whole day has rolled forward together. */
+  type Entry = { day: string; occ: Date; cls: ClassSession };
+  const entries: Entry[] = [];
+
   for (const rec of sessions) {
     const day = rec.fields.Day as string | undefined;
     const name = rec.fields.Name as string | undefined;
     if (!day || !name || rec.fields.Archived) continue;
 
-    const occ = nextOccurrence(day);
+    const time = (rec.fields.Time as string | undefined) ?? "";
+    const occ = nextOccurrence(day, time);
     const capacity = (rec.fields.Capacity as number | undefined) ?? 0;
     const booked = counts.get(`${rec.id}|${toISO(occ)}`) ?? 0;
 
-    if (!byDay.has(day)) {
-      byDay.set(day, {
-        day,
-        tag: DAY_TAG[day] ?? "",
-        nextDate: formatDate(occ),
-        classes: [],
-      });
-    }
     // Availability for this and the following weeks. `counts` already holds
     // every future booking, so this is pure arithmetic — no extra API calls.
     const weekSpots: number[] = [];
@@ -299,13 +331,36 @@ export async function getSchedule(): Promise<DaySchedule[]> {
       weekDates.push(formatDate(d));
     }
 
-    byDay.get(day)!.classes.push({
-      id: rec.id,
-      name,
-      time: (rec.fields.Time as string | undefined) ?? "",
-      spotsLeft: Math.max(0, capacity - booked),
-      weekSpots,
-      weekDates,
+    entries.push({
+      day,
+      occ,
+      cls: {
+        id: rec.id,
+        name,
+        time,
+        spotsLeft: Math.max(0, capacity - booked),
+        weekSpots,
+        weekDates,
+      },
+    });
+  }
+
+  const byDay = new Map<string, DaySchedule>();
+  for (const day of new Set(entries.map((e) => e.day))) {
+    const forDay = entries.filter((e) => e.day === day);
+    const soonest = forDay.reduce(
+      (min, e) => (e.occ < min ? e.occ : min),
+      forDay[0].occ,
+    );
+    const stillToCome = forDay.filter(
+      (e) => toISO(e.occ) === toISO(soonest),
+    );
+    if (stillToCome.length === 0) continue;
+    byDay.set(day, {
+      day,
+      tag: DAY_TAG[day] ?? "",
+      nextDate: formatDate(soonest),
+      classes: stillToCome.map((e) => e.cls),
     });
   }
 
@@ -334,14 +389,18 @@ export class BookingFullError extends Error {
 }
 
 /**
- * Live booking counts for one session across the given dates, read uncached.
- * Cancelled bookings release their place, matching getSchedule.
+ * Live state for one session across the given dates, read uncached:
+ * how many places are taken, and which of those dates this person already
+ * holds. Cancelled bookings release their place, matching getSchedule.
  */
-async function countBookingsFor(
+async function readSessionState(
   sessionId: string,
   isoDates: string[],
-): Promise<Map<string, number>> {
-  const counts = new Map<string, number>(isoDates.map((d) => [d, 0]));
+  email: string,
+): Promise<{ taken: Map<string, number>; held: Set<string> }> {
+  const taken = new Map<string, number>(isoDates.map((d) => [d, 0]));
+  const held = new Set<string>();
+  const mine = email.trim().toLowerCase();
   const rows = await fetchAll(
     "Booking",
     { filterByFormula: "IS_AFTER({Class Date}, DATEADD(TODAY(), -1, 'days'))" },
@@ -353,9 +412,14 @@ async function countBookingsFor(
     const links = b.fields["Sessions"];
     if (typeof date !== "string" || !Array.isArray(links)) continue;
     if (!links.includes(sessionId)) continue;
-    if (counts.has(date)) counts.set(date, (counts.get(date) ?? 0) + 1);
+    if (!taken.has(date)) continue;
+    taken.set(date, (taken.get(date) ?? 0) + 1);
+    const rowEmail = b.fields["Email"];
+    if (mine && typeof rowEmail === "string" && rowEmail.trim().toLowerCase() === mine) {
+      held.add(date);
+    }
   }
-  return counts;
+  return { taken, held };
 }
 
 /**
@@ -365,7 +429,7 @@ async function countBookingsFor(
  */
 export async function createBooking(
   booking: NewBooking,
-): Promise<{ dates: string[] }> {
+): Promise<{ dates: string[]; alreadyBooked?: boolean }> {
   // Look up the session's day so we stamp the correct upcoming date.
   const sres = await fetch(`${API}/Sessions/${booking.sessionId}`, {
     headers: authHeaders,
@@ -396,14 +460,32 @@ export async function createBooking(
   // Which of those weeks actually have room. Availability is re-read
   // uncached: the cached schedule the client saw may be up to 60s stale, and
   // two people can pick the last place in that window.
-  const first = nextOccurrence(day);
+  const first = nextOccurrence(day, classTime);
   const wantedDates = Array.from({ length: weeks }, (_, k) =>
     toISO(addWeeks(first, k)),
   );
-  const taken = await countBookingsFor(booking.sessionId, wantedDates);
-  const openDates = wantedDates.filter((d) => (taken.get(d) ?? 0) < capacity);
+  const { taken, held } = await readSessionState(
+    booking.sessionId,
+    wantedDates,
+    booking.email,
+  );
+
+  // Never sell someone the same place twice. A double-tapped button, an
+  // impatient refresh and a re-submitted form all land here, and without this
+  // each one takes another spot out of the class.
+  const openDates = wantedDates.filter(
+    (d) => !held.has(d) && (taken.get(d) ?? 0) < capacity,
+  );
 
   if (openDates.length === 0) {
+    // Already booked for everything they asked for: show them the booking
+    // they have rather than an error, and don't email them a second time.
+    if (held.size > 0) {
+      return {
+        dates: wantedDates.filter((d) => held.has(d)).map(formatLongDate),
+        alreadyBooked: true,
+      };
+    }
     throw new BookingFullError(
       weeks > 1
         ? "Those classes filled up while you were booking. Please pick another time."
@@ -446,7 +528,7 @@ export async function createBooking(
       `Airtable createBooking failed (${res.status}): ${await res.text()}`,
     );
   }
-  return { dates: openDates.map((iso) => formatLongDate(iso)) };
+  return { dates: openDates.map(formatLongDate) };
 }
 
 /* ================================================================== *
@@ -514,6 +596,9 @@ export async function getRoster(weekOffset = 0): Promise<RosterClass[]> {
     const day = rec.fields.Day as string | undefined;
     const name = rec.fields.Name as string | undefined;
     if (!day || !name || rec.fields.Archived) continue;
+    // Deliberately not time-aware, unlike the public schedule: Libby still
+    // needs today's class on her roster after it has finished so she can mark
+    // who turned up.
     const occ = nextOccurrence(day);
     occ.setDate(occ.getDate() + 7 * weekOffset);
     const list = byKey.get(`${rec.id}|${toISO(occ)}`) ?? [];
@@ -578,7 +663,7 @@ export async function createManualBooking(b: ManualBooking): Promise<number> {
   const classTime = srec.fields?.Time as string | undefined;
 
   const weeks = Math.min(Math.max(Math.round(b.weeks ?? 1), 1), 8);
-  const first = nextOccurrence(day);
+  const first = nextOccurrence(day, classTime);
   const memberId = b.email ? await findMemberIdByEmail(b.email) : undefined;
 
   const records = Array.from({ length: weeks }, (_, k) => {

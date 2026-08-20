@@ -43,6 +43,7 @@ export default function BookingFlow({ schedule }: { schedule: DaySchedule[] }) {
     className: string;
     when: string;
     dates: string[];
+    alreadyBooked: boolean;
     name: string;
     email: string;
     firstTime: boolean;
@@ -146,6 +147,7 @@ export default function BookingFlow({ schedule }: { schedule: DaySchedule[] }) {
         // The server is the authority on what got booked — a week can fill up
         // between the page loading and the request landing.
         dates: Array.isArray(data?.dates) ? (data.dates as string[]) : [],
+        alreadyBooked: Boolean(data?.alreadyBooked),
         name: details.name.trim(),
         email: details.email.trim(),
         firstTime: details.firstTime,
@@ -182,10 +184,20 @@ export default function BookingFlow({ schedule }: { schedule: DaySchedule[] }) {
         </h2>
         <p className="bf-done-script">See you in class!</p>
         <p className="bf-done-lead">
-          {confirmed.dates.length > 1
-            ? `You're booked into ${confirmed.dates.length} classes. `
-            : ""}
-          A confirmation is on its way to <strong>{confirmed.email}</strong>.
+          {confirmed.alreadyBooked ? (
+            <>
+              You were already booked in — we haven&rsquo;t taken a second
+              place, and your original confirmation still stands.
+            </>
+          ) : (
+            <>
+              {confirmed.dates.length > 1
+                ? `You're booked into ${confirmed.dates.length} classes. `
+                : ""}
+              A confirmation is on its way to{" "}
+              <strong>{confirmed.email}</strong>.
+            </>
+          )}
         </p>
 
         <div className="bf-summary">

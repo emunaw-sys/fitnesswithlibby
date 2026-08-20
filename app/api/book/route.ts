@@ -34,7 +34,7 @@ export async function POST(request: Request) {
   }
 
   try {
-    const { dates } = await createBooking({
+    const { dates, alreadyBooked } = await createBooking({
       sessionId,
       name: name.trim(),
       email: email.trim(),
@@ -46,7 +46,7 @@ export async function POST(request: Request) {
     // and the admin roster too.
     revalidatePath("/book");
     revalidatePath("/admin");
-    return NextResponse.json({ ok: true, dates });
+    return NextResponse.json({ ok: true, dates, alreadyBooked: !!alreadyBooked });
   } catch (err) {
     // "That class just filled up" is the user's problem to fix, not a fault —
     // show them the real reason instead of a generic failure.

@@ -13,10 +13,18 @@ export async function POST(request: Request) {
   if (typeof name !== "string" || !name.trim()) {
     return NextResponse.json({ error: "Add a name." }, { status: 400 });
   }
+  // The website recognises members by email alone, so a member without one
+  // can never book a series online — it would just silently not appear.
+  if (typeof email !== "string" || !/.+@.+\..+/.test(email.trim())) {
+    return NextResponse.json(
+      { error: "Add an email — members are matched by it when they book online." },
+      { status: 400 },
+    );
+  }
   try {
     await addMember({
       name: name.trim(),
-      email: typeof email === "string" ? email.trim() : undefined,
+      email: email.trim(),
       phone: typeof phone === "string" ? phone.trim() : undefined,
       type: typeof type === "string" ? type : undefined,
     });
