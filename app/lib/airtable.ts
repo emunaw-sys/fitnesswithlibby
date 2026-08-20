@@ -120,6 +120,48 @@ function nextOccurrence(day: string, time?: string): Date {
   return d;
 }
 
+/**
+ * The dates a class actually runs, soonest first.
+ *
+ * Starts from the next occurrence of its weekday, then skips anything the
+ * class isn't running: dates before its "Starts On" (a season start), and any
+ * date in "Skip Dates" (a chag, illness, a one-off closure).
+ *
+ * This is the single source of truth for "when does this class run". The
+ * public schedule, the series picker and the booking write all call it, so
+ * the page can never offer a date the server would refuse.
+ */
+function bookableDates(
+  day: string,
+  time: string | undefined,
+  startsOn: string | undefined,
+  skip: Set<string>,
+  count: number,
+): Date[] {
+  const out: Date[] = [];
+  let d = nextOccurrence(day, time);
+  // Two years of weeks is far past any real season start, and stops a bad
+  // "Starts On" (a typo'd year, say) from spinning forever.
+  for (let guard = 0; guard < 104 && out.length < count; guard++) {
+    const iso = toISO(d);
+    const toosoon = startsOn ? iso < startsOn : false;
+    if (!toosoon && !skip.has(iso)) out.push(new Date(d));
+    d = addWeeks(d, 1);
+  }
+  return out;
+}
+
+/* Parse the Skip Dates textarea into a set of ISO dates. */
+function parseSkipDates(raw: unknown): Set<string> {
+  if (typeof raw !== "string") return new Set();
+  return new Set(
+    raw
+      .split(/[\n,]/)
+      .map((x) => x.trim())
+      .filter((x) => /^\d{4}-\d{2}-\d{2}$/.test(x)),
+  );
+}
+
 /* Same weekday, k weeks later. */
 function addWeeks(d: Date, k: number): Date {
   const out = new Date(d);
@@ -316,16 +358,24 @@ export async function getSchedule(): Promise<DaySchedule[]> {
     if (!day || !name || rec.fields.Archived) continue;
 
     const time = (rec.fields.Time as string | undefined) ?? "";
-    const occ = nextOccurrence(day, time);
+    const runs = bookableDates(
+      day,
+      time,
+      rec.fields["Starts On"] as string | undefined,
+      parseSkipDates(rec.fields["Skip Dates"]),
+      SERIES_WEEKS,
+    );
+    if (runs.length === 0) continue; // nothing scheduled within two years
+    const occ = runs[0];
     const capacity = (rec.fields.Capacity as number | undefined) ?? 0;
     const booked = counts.get(`${rec.id}|${toISO(occ)}`) ?? 0;
 
-    // Availability for this and the following weeks. `counts` already holds
-    // every future booking, so this is pure arithmetic — no extra API calls.
+    // Availability across the next few dates it actually runs — cancelled
+    // weeks are skipped, so a series never straddles a week with no class.
+    // `counts` already holds every future booking, so this costs no API calls.
     const weekSpots: number[] = [];
     const weekDates: string[] = [];
-    for (let k = 0; k < SERIES_WEEKS; k++) {
-      const d = addWeeks(occ, k);
+    for (const d of runs) {
       const taken = counts.get(`${rec.id}|${toISO(d)}`) ?? 0;
       weekSpots.push(Math.max(0, capacity - taken));
       weekDates.push(formatDate(d));
@@ -450,6 +500,8 @@ export async function createBooking(
   const className = srec.fields?.Name as string | undefined;
   const classTime = srec.fields?.Time as string | undefined;
   const capacity = (srec.fields?.Capacity as number | undefined) ?? 0;
+  const startsOn = srec.fields?.["Starts On"] as string | undefined;
+  const skip = parseSkipDates(srec.fields?.["Skip Dates"]);
 
   // If this email matches a member on file, link the booking to them so
   // Libby can tell members apart from drop-ins.
@@ -464,10 +516,14 @@ export async function createBooking(
   // Which of those weeks actually have room. Availability is re-read
   // uncached: the cached schedule the client saw may be up to 60s stale, and
   // two people can pick the last place in that window.
-  const first = nextOccurrence(day, classTime);
-  const wantedDates = Array.from({ length: weeks }, (_, k) =>
-    toISO(addWeeks(first, k)),
+  // The same dates the schedule offered — computed here rather than trusted,
+  // and skipping any week the class isn't running.
+  const wantedDates = bookableDates(day, classTime, startsOn, skip, weeks).map(
+    toISO,
   );
+  if (wantedDates.length === 0) {
+    throw new BookingFullError("That class isn't running at the moment.");
+  }
   const { taken, held } = await readSessionState(
     booking.sessionId,
     wantedDates,
@@ -566,6 +622,10 @@ export type RosterClass = {
   capacity: number;
   spotsLeft: number;
   bookings: RosterBooking[];
+  /** ISO date of this occurrence, for cancelling/restoring it. */
+  dateISO: string;
+  /** True when Libby has called this particular week off. */
+  cancelled: boolean;
 };
 
 /** This week's classes, each with the people booked in — for the roster. */
@@ -611,9 +671,11 @@ export async function getRoster(weekOffset = 0): Promise<RosterClass[]> {
     if (!day || !name || rec.fields.Archived) continue;
     // Deliberately not time-aware, unlike the public schedule: Libby still
     // needs today's class on her roster after it has finished so she can mark
-    // who turned up.
+    // who turned up. Cancelled weeks stay on the roster too — hiding them
+    // would take away the list of people to tell and the way to undo.
     const occ = nextOccurrence(day);
     occ.setDate(occ.getDate() + 7 * weekOffset);
+    const skip = parseSkipDates(rec.fields["Skip Dates"]);
     const list = byKey.get(`${rec.id}|${toISO(occ)}`) ?? [];
     const active = list.filter((b) => b.attendance !== "Cancelled").length;
     const capacity = (rec.fields.Capacity as number | undefined) ?? 0;
@@ -626,6 +688,8 @@ export async function getRoster(weekOffset = 0): Promise<RosterClass[]> {
       capacity,
       spotsLeft: Math.max(0, capacity - active),
       bookings: list.sort((a, b) => a.name.localeCompare(b.name)),
+      dateISO: toISO(occ),
+      cancelled: skip.has(toISO(occ)),
     });
   }
   result.sort(
@@ -676,12 +740,17 @@ export async function createManualBooking(b: ManualBooking): Promise<number> {
   const classTime = srec.fields?.Time as string | undefined;
 
   const weeks = Math.min(Math.max(Math.round(b.weeks ?? 1), 1), 8);
-  const first = nextOccurrence(day, classTime);
+  const runs = bookableDates(
+    day,
+    classTime,
+    srec.fields?.["Starts On"] as string | undefined,
+    parseSkipDates(srec.fields?.["Skip Dates"]),
+    weeks,
+  );
+  if (runs.length === 0) throw new Error("That class isn't running at the moment.");
   const memberId = b.email ? await findMemberIdByEmail(b.email) : undefined;
 
-  const records = Array.from({ length: weeks }, (_, k) => {
-    const d = new Date(first);
-    d.setDate(d.getDate() + 7 * k);
+  const records = runs.map((d) => {
     return {
       fields: {
         Name: b.name,
@@ -709,7 +778,7 @@ export async function createManualBooking(b: ManualBooking): Promise<number> {
       `createManualBooking failed (${res.status}): ${await res.text()}`,
     );
   }
-  return weeks;
+  return runs.length;
 }
 
 export type MonthTally = {
@@ -835,19 +904,23 @@ export type StudioClass = {
   time: string;
   name: string;
   capacity: number;
+  startsOn: string | null; // ISO, or null when it runs continuously
+  archived: boolean;
 };
 
-/** Active (non-archived) classes, for the manage-classes screen. */
+/** Every class, active and archived — the manage-classes screen shows both. */
 export async function getClasses(): Promise<StudioClass[]> {
   const recs = await fetchAll("Sessions", {}, ADMIN_TTL, [ADMIN_TAG]);
   return recs
-    .filter((r) => r.fields.Name && !r.fields.Archived)
+    .filter((r) => r.fields.Name)
     .map((r) => ({
       id: r.id,
       day: (r.fields.Day as string) ?? "",
       time: (r.fields.Time as string) ?? "",
       name: (r.fields.Name as string) ?? "",
       capacity: (r.fields.Capacity as number) ?? 0,
+      startsOn: (r.fields["Starts On"] as string) ?? null,
+      archived: Boolean(r.fields.Archived),
     }))
     .sort(
       (a, b) =>
@@ -878,6 +951,99 @@ export async function addClass(c: {
   if (!res.ok) {
     throw new Error(`addClass failed (${res.status}): ${await res.text()}`);
   }
+}
+
+/** Set or clear a class's season start. Pass null to clear it. */
+export async function setClassStartsOn(
+  id: string,
+  startsOn: string | null,
+): Promise<void> {
+  const res = await fetch(`${API}/Sessions/${id}`, {
+    method: "PATCH",
+    headers: { ...authHeaders, "Content-Type": "application/json" },
+    body: JSON.stringify({ fields: { "Starts On": startsOn } }),
+  });
+  if (!res.ok) {
+    throw new Error(`setClassStartsOn failed (${res.status}): ${await res.text()}`);
+  }
+}
+
+/**
+ * Call off (or reinstate) one week of a class.
+ *
+ * Cancelling also marks that week's bookings Cancelled, which releases the
+ * places and keeps the monthly attendance tallies honest. Nobody is emailed —
+ * Libby tells them herself, which is why the roster keeps showing the class
+ * and the people who were booked into it.
+ *
+ * Reinstating clears the skip date but deliberately does NOT un-cancel the
+ * bookings: those people have been told the class was off, so they have to
+ * choose to come back rather than be silently rebooked.
+ */
+export async function setOccurrenceCancelled(
+  sessionId: string,
+  isoDate: string,
+  cancelled: boolean,
+): Promise<{ affected: number }> {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(isoDate)) throw new Error("Bad date.");
+
+  const sres = await fetch(`${API}/Sessions/${sessionId}`, {
+    headers: authHeaders,
+    cache: "no-store",
+  });
+  if (!sres.ok) throw new Error(`session lookup failed (${sres.status})`);
+  const srec = (await sres.json()) as AirtableRecord;
+
+  const skip = parseSkipDates(srec.fields?.["Skip Dates"]);
+  if (cancelled) skip.add(isoDate);
+  else skip.delete(isoDate);
+
+  const pres = await fetch(`${API}/Sessions/${sessionId}`, {
+    method: "PATCH",
+    headers: { ...authHeaders, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      fields: { "Skip Dates": Array.from(skip).sort().join("\n") },
+    }),
+  });
+  if (!pres.ok) {
+    throw new Error(`skip-date update failed (${pres.status}): ${await pres.text()}`);
+  }
+
+  if (!cancelled) return { affected: 0 };
+
+  // Release the places held for that week.
+  const rows = await fetchAll(
+    "Booking",
+    { filterByFormula: "IS_AFTER({Class Date}, DATEADD(TODAY(), -1, 'days'))" },
+    0,
+  );
+  const doomed = rows.filter((b) => {
+    const links = b.fields["Sessions"];
+    return (
+      b.fields["Class Date"] === isoDate &&
+      Array.isArray(links) &&
+      links.includes(sessionId) &&
+      b.fields["Attendance"] !== "Cancelled"
+    );
+  });
+
+  for (let i = 0; i < doomed.length; i += 10) {
+    const batch = doomed.slice(i, i + 10);
+    const res = await fetch(`${API}/Booking`, {
+      method: "PATCH",
+      headers: { ...authHeaders, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        records: batch.map((b) => ({
+          id: b.id,
+          fields: { Attendance: "Cancelled" },
+        })),
+      }),
+    });
+    if (!res.ok) {
+      throw new Error(`cancelling bookings failed (${res.status}): ${await res.text()}`);
+    }
+  }
+  return { affected: doomed.length };
 }
 
 /** Archive (hide) or restore a class. Bookings/history are preserved. */

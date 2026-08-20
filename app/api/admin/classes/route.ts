@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { revalidatePath } from "next/cache";
 import { isAuthed } from "@/app/lib/adminAuth";
-import { addClass, setClassArchived } from "@/app/lib/airtable";
+import { addClass, setClassArchived, setClassStartsOn } from "@/app/lib/airtable";
 
 // Add a new class.
 export async function POST(request: Request) {
@@ -33,7 +33,7 @@ export async function POST(request: Request) {
   }
 }
 
-// Archive (remove) or restore a class.
+// Archive/restore a class, or set the date its season starts.
 export async function PATCH(request: Request) {
   if (!(await isAuthed())) {
     return NextResponse.json({ error: "Not authorized." }, { status: 401 });
@@ -41,16 +41,26 @@ export async function PATCH(request: Request) {
   const body = (await request.json().catch(() => ({}))) as {
     id?: unknown;
     archived?: unknown;
+    startsOn?: unknown;
   };
   if (typeof body.id !== "string") {
     return NextResponse.json({ error: "Bad request." }, { status: 400 });
   }
   try {
-    await setClassArchived(body.id, Boolean(body.archived));
+    if ("startsOn" in body) {
+      const v = body.startsOn;
+      if (v !== null && v !== "" && (typeof v !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(v))) {
+        return NextResponse.json({ error: "Bad date." }, { status: 400 });
+      }
+      await setClassStartsOn(body.id, v === "" || v === null ? null : (v as string));
+    } else {
+      await setClassArchived(body.id, Boolean(body.archived));
+    }
     revalidatePath("/admin");
+    revalidatePath("/book");
     return NextResponse.json({ ok: true });
   } catch (err) {
-    console.error("archive class failed:", err);
+    console.error("class update failed:", err);
     return NextResponse.json({ error: "Update failed." }, { status: 502 });
   }
 }

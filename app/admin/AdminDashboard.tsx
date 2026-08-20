@@ -153,8 +153,9 @@ function Home({
         <button className="ad-home-card" onClick={() => onGo("classes")}>
           <span className="ad-home-title">Manage classes</span>
           <span className="ad-home-sub">
-            {classes.length} class{classes.length === 1 ? "" : "es"} · add or
-            remove
+            {classes.filter((c) => !c.archived).length} class
+            {classes.filter((c) => !c.archived).length === 1 ? "" : "es"} · dates,
+            add or remove
           </span>
         </button>
       </div>
@@ -249,9 +250,64 @@ function RosterGrid({
                 {c.day} {c.date} · {c.time}
               </span>
             </div>
-            <span className={`ad-spots${c.spotsLeft === 0 ? " full" : ""}`}>
-              {c.spotsLeft} left
-            </span>
+            {c.cancelled ? (
+              <span className="ad-spots full">No class</span>
+            ) : (
+              <span className={`ad-spots${c.spotsLeft === 0 ? " full" : ""}`}>
+                {c.spotsLeft} left
+              </span>
+            )}
+          </div>
+
+          <div className="ad-offweek">
+            {c.cancelled ? (
+              <>
+                <span className="ad-offweek-msg">
+                  This week is off. It&rsquo;s hidden from the website, and the
+                  bookings below were cancelled — tell them yourself, nothing was
+                  emailed.
+                </span>
+                <button
+                  className="ad-mark"
+                  disabled={busy}
+                  onClick={() =>
+                    act("/api/admin/occurrence", "POST", {
+                      sessionId: c.sessionId,
+                      date: c.dateISO,
+                      cancelled: false,
+                    })
+                  }
+                >
+                  Put it back on
+                </button>
+              </>
+            ) : (
+              <button
+                className="ad-mark"
+                disabled={busy}
+                onClick={() => {
+                  const n = c.bookings.filter(
+                    (b) => b.attendance !== "Cancelled",
+                  ).length;
+                  const warn = n
+                    ? `\n\n${n} ${n === 1 ? "person is" : "people are"} booked in. Their place will be released and you'll need to tell them — no email is sent.`
+                    : "";
+                  if (
+                    confirm(
+                      `No class on ${c.day} ${c.date}?${warn}\n\nYou can put it back on afterwards.`,
+                    )
+                  ) {
+                    act("/api/admin/occurrence", "POST", {
+                      sessionId: c.sessionId,
+                      date: c.dateISO,
+                      cancelled: true,
+                    });
+                  }
+                }}
+              >
+                No class this week
+              </button>
+            )}
           </div>
           {c.bookings.length === 0 ? (
             <p className="ad-none">No one booked yet.</p>
@@ -543,18 +599,39 @@ function ClassesView({
   act: Act;
   busy: boolean;
 }) {
+  const active = classes.filter((c) => !c.archived);
+  const archived = classes.filter((c) => c.archived);
   return (
     <div>
       <AddClass act={act} busy={busy} />
-      {classes.length === 0 && <p className="ad-empty">No classes yet.</p>}
+      {active.length === 0 && <p className="ad-empty">No classes yet.</p>}
       <ul className="ad-mlist">
-        {classes.map((c) => (
+        {active.map((c) => (
           <li key={c.id}>
             <div className="ad-person">
               <span className="ad-name">{c.name}</span>
               <span className="ad-phone">
                 {c.day} · {c.time} · up to {c.capacity}
               </span>
+              <label className="ad-starts">
+                Starts on
+                <input
+                  type="date"
+                  value={c.startsOn ?? ""}
+                  disabled={busy}
+                  onChange={(e) =>
+                    act("/api/admin/classes", "PATCH", {
+                      id: c.id,
+                      startsOn: e.target.value || null,
+                    })
+                  }
+                />
+                <span className="ad-opt">
+                  {c.startsOn
+                    ? "not offered before this date"
+                    : "leave empty if it runs every week"}
+                </span>
+              </label>
             </div>
             <div className="ad-actions">
               <button
@@ -563,7 +640,7 @@ function ClassesView({
                 onClick={() => {
                   if (
                     confirm(
-                      `Remove "${c.name}" (${c.day} ${c.time})? Past bookings are kept.`,
+                      `Remove "${c.name}" (${c.day} ${c.time})? Past bookings are kept, and you can put it back.`,
                     )
                   ) {
                     act("/api/admin/classes", "PATCH", { id: c.id, archived: true });
@@ -576,6 +653,38 @@ function ClassesView({
           </li>
         ))}
       </ul>
+
+      {archived.length > 0 && (
+        <>
+          <h3 style={{ marginTop: 28 }}>Removed classes</h3>
+          <ul className="ad-mlist">
+            {archived.map((c) => (
+              <li key={c.id}>
+                <div className="ad-person">
+                  <span className="ad-name">{c.name}</span>
+                  <span className="ad-phone">
+                    {c.day} · {c.time} · up to {c.capacity}
+                  </span>
+                </div>
+                <div className="ad-actions">
+                  <button
+                    disabled={busy}
+                    className="ad-mark"
+                    onClick={() =>
+                      act("/api/admin/classes", "PATCH", {
+                        id: c.id,
+                        archived: false,
+                      })
+                    }
+                  >
+                    Put back
+                  </button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
     </div>
   );
 }

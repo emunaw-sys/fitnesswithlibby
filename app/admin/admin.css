@@ -656,3 +656,20 @@
   display:block; margin-top:4px;
   font-size:11.5px; letter-spacing:.02em; color:#B3123C;
 }
+
+/* season start, on the manage-classes list */
+.ad-starts{
+  display:flex; align-items:center; flex-wrap:wrap; gap:8px;
+  margin-top:8px; font-size:12.5px; color:rgba(51,18,48,.7);
+}
+.ad-starts input{ width:auto; padding:5px 8px; font-size:12.5px; }
+
+/* calling off a single week, on the roster */
+.ad-offweek{
+  display:flex; align-items:center; flex-wrap:wrap; gap:10px;
+  margin:10px 0 2px; padding-top:10px;
+  border-top:1px solid rgba(51,18,48,.08);
+}
+.ad-offweek-msg{
+  flex:1 1 240px; font-size:12.5px; line-height:1.5; color:#B3123C;
+}
