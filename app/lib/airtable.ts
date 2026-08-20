@@ -433,7 +433,7 @@ async function readSessionState(
  */
 export async function createBooking(
   booking: NewBooking,
-): Promise<{ dates: string[]; alreadyBooked?: boolean }> {
+): Promise<{ dates: string[]; added: number; alreadyHeld: number }> {
   // Look up the session's day so we stamp the correct upcoming date.
   const sres = await fetch(`${API}/Sessions/${booking.sessionId}`, {
     headers: authHeaders,
@@ -485,9 +485,11 @@ export async function createBooking(
     // Already booked for everything they asked for: show them the booking
     // they have rather than an error, and don't email them a second time.
     if (held.size > 0) {
+      const mine = wantedDates.filter((d) => held.has(d));
       return {
-        dates: wantedDates.filter((d) => held.has(d)).map(formatLongDate),
-        alreadyBooked: true,
+        dates: mine.map(formatLongDate),
+        added: 0,
+        alreadyHeld: mine.length,
       };
     }
     throw new BookingFullError(
@@ -499,7 +501,10 @@ export async function createBooking(
 
   // One email per booking, not per class: only the first record is flagged
   // for the automation, and it carries the full list of dates.
-  const seriesDates = openDates
+  const confirmed = wantedDates.filter(
+    (d) => held.has(d) || openDates.includes(d),
+  );
+  const seriesDates = confirmed
     .map((iso) => `${formatLongDate(iso)}${classTime ? `, ${classTime}` : ""}`)
     .join("\n");
 
@@ -532,7 +537,11 @@ export async function createBooking(
       `Airtable createBooking failed (${res.status}): ${await res.text()}`,
     );
   }
-  return { dates: openDates.map(formatLongDate) };
+  return {
+    dates: confirmed.map(formatLongDate),
+    added: openDates.length,
+    alreadyHeld: confirmed.length - openDates.length,
+  };
 }
 
 /* ================================================================== *
