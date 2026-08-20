@@ -345,28 +345,32 @@ export async function getSchedule(): Promise<DaySchedule[]> {
     });
   }
 
-  const byDay = new Map<string, DaySchedule>();
+  const cards: { on: Date; card: DaySchedule }[] = [];
   for (const day of new Set(entries.map((e) => e.day))) {
     const forDay = entries.filter((e) => e.day === day);
     const soonest = forDay.reduce(
       (min, e) => (e.occ < min ? e.occ : min),
       forDay[0].occ,
     );
-    const stillToCome = forDay.filter(
-      (e) => toISO(e.occ) === toISO(soonest),
-    );
+    const stillToCome = forDay.filter((e) => toISO(e.occ) === toISO(soonest));
     if (stillToCome.length === 0) continue;
-    byDay.set(day, {
-      day,
-      tag: DAY_TAG[day] ?? "",
-      nextDate: formatDate(soonest),
-      classes: stillToCome.map((e) => e.cls),
+    cards.push({
+      on: soonest,
+      card: {
+        day,
+        tag: DAY_TAG[day] ?? "",
+        nextDate: formatDate(soonest),
+        classes: stillToCome.map((e) => e.cls),
+      },
     });
   }
 
-  const schedule = Array.from(byDay.values()).sort(
-    (a, b) => DAY_ORDER.indexOf(a.day) - DAY_ORDER.indexOf(b.day),
-  );
+  /* Soonest first, by real date — not by weekday name. Sorting Sunday-to-
+   * Saturday puts a class running today *below* one next Tuesday whenever
+   * today falls late in the week, which reads as though the page is broken. */
+  const schedule = cards
+    .sort((a, b) => a.on.getTime() - b.on.getTime())
+    .map((c) => c.card);
   for (const d of schedule) {
     d.classes.sort((a, b) => timeToMinutes(a.time) - timeToMinutes(b.time));
   }
