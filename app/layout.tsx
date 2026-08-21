@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { Bebas_Neue, Alex_Brush, Outfit } from "next/font/google";
+import { Analytics } from "@vercel/analytics/next";
 import "./globals.css";
 
 // Display headline face
@@ -46,7 +47,12 @@ export default function RootLayout({
       lang="en"
       className={`${bebas.variable} ${alexBrush.variable} ${outfit.variable}`}
     >
-      <body>{children}</body>
+      <body>
+        {children}
+        {/* Vercel Web Analytics. Cookieless, so the site still needs no
+            cookie banner. Sends nothing in local dev. */}
+        <Analytics />
+      </body>
     </html>
   );
 }
