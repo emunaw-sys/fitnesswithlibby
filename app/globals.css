@@ -1935,3 +1935,41 @@ html, body { max-width: 100%; }
 @media (max-width: 560px){
   .bf-grid{ grid-template-columns:1fr 1fr; }
 }
+
+/* ============ 404 ============
+   Mirrors the /book header scale and spacing so a wrong turn still looks like
+   the same site. Top padding clears the fixed nav, same as .book-header. */
+.notfound{
+  min-height:100vh;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  text-align:center;
+  padding:clamp(130px,17vh,190px) clamp(24px,5vw,64px) clamp(60px,10vh,110px);
+  background:
+    radial-gradient(62% 60% at 50% 0%, rgba(232,93,138,.10) 0%, transparent 60%),
+    var(--cream);
+}
+.notfound-code{
+  font-family:var(--font-bebas),sans-serif;
+  font-size:clamp(64px,9vw,120px);line-height:1;
+  letter-spacing:.06em;
+  background:var(--grad);
+  -webkit-background-clip:text;background-clip:text;
+  -webkit-text-fill-color:transparent;color:var(--magenta);
+  margin-bottom:8px;
+}
+.notfound-title{
+  font-family:var(--font-bebas),sans-serif;font-weight:400;
+  font-size:clamp(40px,6vw,84px);line-height:1;
+  color:var(--plum);
+}
+.notfound-script{
+  display:inline-block;margin-left:.28em;
+  font-family:var(--font-brush),cursive;font-weight:400;
+  font-size:1.06em;color:var(--magenta);
+}
+.notfound-body{
+  max-width:52ch;margin:clamp(16px,2.4vh,24px) auto 0;
+  font-size:clamp(15px,1.3vw,18px);font-weight:300;line-height:1.6;
+  color:rgba(51,18,48,.9);
+}
+.notfound-cta{ margin-top:clamp(26px,4vh,40px); justify-content:center; }
