@@ -4,10 +4,15 @@ import { Footer } from "../components/Sections";
 import BookingFlow from "../components/BookingFlow";
 import { getSchedule, type DaySchedule } from "../lib/airtable";
 
+const TITLE = "Book a Class — Fitness With Libby";
+const DESCRIPTION =
+  "Book your class at Fitness With Libby in Beit Shemesh. New here? Your first class is a single drop-in — no membership required.";
+
 export const metadata: Metadata = {
-  title: "Book a Class — Fitness With Libby",
-  description:
-    "Book your class at Fitness With Libby in Beit Shemesh. New here? Your first class is a single drop-in — no membership required.",
+  title: TITLE,
+  description: DESCRIPTION,
+  alternates: { canonical: "/book" },
+  openGraph: { title: TITLE, description: DESCRIPTION, url: "/book" },
 };
 
 // Render on request (not at build time), so the deploy never depends on
