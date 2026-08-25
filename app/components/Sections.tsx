@@ -566,7 +566,7 @@ export function Membership() {
       </div>
 
       <p className="m-foot">
-        Your first class is a single drop-in — no membership required. When
+        Your first class is a single drop-in — ₪45, no membership required. When
         you&rsquo;re ready, join a membership and keep coming.
       </p>
       <p className="m-pt">

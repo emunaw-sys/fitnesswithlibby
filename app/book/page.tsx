@@ -54,8 +54,8 @@ export default async function BookPage() {
           <div className="book-path path-new">
             <span className="book-path-label">New here?</span>
             <p>
-              Book your <strong>first class</strong> — a single drop-in. No
-              membership, no commitment.
+              Book your <strong>first class</strong> — a single drop-in for{" "}
+              <strong>₪45</strong>. No membership, no commitment.
             </p>
           </div>
           <div className="book-path path-member">

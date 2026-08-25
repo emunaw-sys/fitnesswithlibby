@@ -437,8 +437,9 @@ export default function BookingFlow({ schedule }: { schedule: DaySchedule[] }) {
           )}
           {details.firstTime && (
             <div className="bf-note">
-              <strong>Lovely — Libby will look out for you.</strong>{" "}
-              Come in whatever you&rsquo;re comfortable moving in, bring water,
+              <strong>Lovely — Libby will look out for you.</strong> Your first
+              class is a one-off drop-in — <strong>₪45</strong>, no membership
+              needed. Come in whatever you&rsquo;re comfortable moving in, bring water,
               and arrive five minutes early so she can say hello properly. No
               experience needed, and nobody is watching anyone else.
             </div>
