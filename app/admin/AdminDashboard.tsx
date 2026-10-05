@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import type {
   RosterClass,
@@ -10,7 +10,12 @@ import type {
 } from "@/app/lib/airtable";
 
 type View = "home" | "week" | "members" | "classes";
-type Act = (u: string, m: string, b: Record<string, unknown>) => Promise<boolean>;
+type Act = (
+  u: string,
+  m: string,
+  b: Record<string, unknown>,
+  opts?: { refresh?: boolean },
+) => Promise<boolean>;
 
 const DAYS = [
   "Sunday",
@@ -36,8 +41,22 @@ export default function AdminDashboard({
   const [msg, setMsg] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [, startTransition] = useTransition();
+  // Set when a change was shown on screen without re-loading the page (see
+  // attendance in RosterGrid). The next view switch refreshes once, so other
+  // screens — like members' monthly tallies — catch up.
+  const stale = useRef(false);
 
-  const act: Act = async (url, method, body) => {
+  const refresh = () => {
+    stale.current = false;
+    startTransition(() => router.refresh());
+  };
+
+  const go = (v: View) => {
+    if (stale.current) refresh();
+    setView(v);
+  };
+
+  const act: Act = async (url, method, body, opts) => {
     setBusy(true);
     setMsg(null);
     try {
@@ -51,7 +70,10 @@ export default function AdminDashboard({
         setMsg(d?.error ?? "Something went wrong.");
         return false;
       }
-      startTransition(() => router.refresh());
+      // Re-rendering the page re-reads Airtable, so a caller that already
+      // shows its change on screen can opt out and save the calls.
+      if (opts?.refresh === false) stale.current = true;
+      else refresh();
       return true;
     } catch {
       setMsg("Something went wrong.");
@@ -67,7 +89,15 @@ export default function AdminDashboard({
   }
 
   if (view === "home") {
-    return <Home members={members} classes={classes} onGo={setView} onLogout={logout} />;
+    return (
+      <Home
+        members={members}
+        classes={classes}
+        onGo={go}
+        onLogout={logout}
+        onRefresh={() => act("/api/admin/refresh", "POST", {})}
+      />
+    );
   }
 
   const titles: Record<View, string> = {
@@ -81,7 +111,7 @@ export default function AdminDashboard({
     <div className="ad">
       <div className="ad-top">
         <div className="ad-head-left">
-          <button className="ad-back" onClick={() => setView("home")}>
+          <button className="ad-back" onClick={() => go("home")}>
             ← Home
           </button>
           <h1>{titles[view]}</h1>
@@ -111,13 +141,22 @@ function Home({
   classes,
   onGo,
   onLogout,
+  onRefresh,
 }: {
   members: Member[];
   classes: StudioClass[];
   onGo: (v: View) => void;
   onLogout: () => void;
+  onRefresh: () => Promise<boolean>;
 }) {
   const activeMembers = members.filter((m) => m.status === "Active").length;
+  const [refresh, setRefresh] = useState<"idle" | "busy" | "done" | "failed">(
+    "idle",
+  );
+  async function pull() {
+    setRefresh("busy");
+    setRefresh((await onRefresh()) ? "done" : "failed");
+  }
   return (
     <div className="ad">
       <div className="ad-home-top">
@@ -157,6 +196,25 @@ function Home({
             {classes.filter((c) => !c.archived).length === 1 ? "" : "es"} · dates,
             add or remove
           </span>
+        </button>
+      </div>
+      {/* The site keeps Airtable data for up to a day to stay inside the free
+          plan; anything changed here updates at once, but edits made in
+          Airtable itself wait for this button (or the day to pass). */}
+      <div className="ad-refresh">
+        <span>
+          {refresh === "done"
+            ? "Up to date with Airtable."
+            : refresh === "failed"
+              ? "Couldn’t reach Airtable — try again in a minute."
+              : "Changed something directly in Airtable?"}
+        </span>
+        <button
+          className="ad-logout"
+          disabled={refresh === "busy"}
+          onClick={pull}
+        >
+          {refresh === "busy" ? "Refreshing…" : "Refresh from Airtable"}
         </button>
       </div>
     </div>
@@ -237,117 +295,154 @@ function RosterGrid({
   act: Act;
   busy: boolean;
 }) {
+  // Attendance Libby has just marked, shown straight away instead of
+  // re-loading the page after every tap: re-loading costs Airtable calls, and
+  // a class of 12 would otherwise burn ~60 of the month's 1,000.
+  // Each mark remembers what the server said when it was made, and only
+  // applies while the server still says that — so once fresh data arrives
+  // (or something else changes the booking, like calling the week off), the
+  // server wins and a leftover mark can't hide it.
+  const [marks, setMarks] = useState<
+    Record<string, { from: string; to: string }>
+  >({});
+  const statusOf = (b: { id: string; attendance: string }) => {
+    const m = marks[b.id];
+    return m && m.from === b.attendance ? m.to : b.attendance;
+  };
+
+  async function mark(b: { id: string; attendance: string }, s: string) {
+    const before = statusOf(b);
+    const next = before === s ? "Booked" : s;
+    const set = (to: string) =>
+      setMarks((m) => ({ ...m, [b.id]: { from: b.attendance, to } }));
+    set(next);
+    const ok = await act(
+      "/api/admin/attendance",
+      "POST",
+      { bookingId: b.id, status: next },
+      { refresh: false },
+    );
+    if (!ok) set(before);
+  }
+
   if (classes.length === 0)
     return <p className="ad-empty">No classes set up yet.</p>;
   return (
     <div className="ad-classes">
-      {classes.map((c) => (
-        <section className="ad-class" key={c.sessionId}>
-          <div className="ad-class-head">
-            <div>
-              <h2>{c.name}</h2>
-              <span className="ad-when">
-                {c.day} {c.date} · {c.time}
-              </span>
-            </div>
-            {c.cancelled ? (
-              <span className="ad-spots full">No class</span>
-            ) : (
-              <span className={`ad-spots${c.spotsLeft === 0 ? " full" : ""}`}>
-                {c.spotsLeft} left
-              </span>
-            )}
-          </div>
-
-          <div className="ad-offweek">
-            {c.cancelled ? (
-              <>
-                <span className="ad-offweek-msg">
-                  This week is off. It&rsquo;s hidden from the website, and the
-                  bookings below were cancelled — tell them yourself, nothing was
-                  emailed.
+      {classes.map((c) => {
+        // A cancellation frees a place; un-cancelling takes one back.
+        const spotsLeft =
+          c.spotsLeft +
+          c.bookings.reduce(
+            (n, b) =>
+              n +
+              (b.attendance === "Cancelled" ? 0 : 1) -
+              (statusOf(b) === "Cancelled" ? 0 : 1),
+            0,
+          );
+        return (
+          <section className="ad-class" key={c.sessionId}>
+            <div className="ad-class-head">
+              <div>
+                <h2>{c.name}</h2>
+                <span className="ad-when">
+                  {c.day} {c.date} · {c.time}
                 </span>
+              </div>
+              {c.cancelled ? (
+                <span className="ad-spots full">No class</span>
+              ) : (
+                <span className={`ad-spots${spotsLeft === 0 ? " full" : ""}`}>
+                  {spotsLeft} left
+                </span>
+              )}
+            </div>
+
+            <div className="ad-offweek">
+              {c.cancelled ? (
+                <>
+                  <span className="ad-offweek-msg">
+                    This week is off. It&rsquo;s hidden from the website, and the
+                    bookings below were cancelled — tell them yourself, nothing was
+                    emailed.
+                  </span>
+                  <button
+                    className="ad-mark"
+                    disabled={busy}
+                    onClick={() =>
+                      act("/api/admin/occurrence", "POST", {
+                        sessionId: c.sessionId,
+                        date: c.dateISO,
+                        cancelled: false,
+                      })
+                    }
+                  >
+                    Put it back on
+                  </button>
+                </>
+              ) : (
                 <button
                   className="ad-mark"
                   disabled={busy}
-                  onClick={() =>
-                    act("/api/admin/occurrence", "POST", {
-                      sessionId: c.sessionId,
-                      date: c.dateISO,
-                      cancelled: false,
-                    })
-                  }
+                  onClick={() => {
+                    const n = c.bookings.filter(
+                      (b) => statusOf(b) !== "Cancelled",
+                    ).length;
+                    const warn = n
+                      ? `\n\n${n} ${n === 1 ? "person is" : "people are"} booked in. Their place will be released and you'll need to tell them — no email is sent.`
+                      : "";
+                    if (
+                      confirm(
+                        `No class on ${c.day} ${c.date}?${warn}\n\nYou can put it back on afterwards.`,
+                      )
+                    ) {
+                      act("/api/admin/occurrence", "POST", {
+                        sessionId: c.sessionId,
+                        date: c.dateISO,
+                        cancelled: true,
+                      });
+                    }
+                  }}
                 >
-                  Put it back on
+                  No class this week
                 </button>
-              </>
+              )}
+            </div>
+            {c.bookings.length === 0 ? (
+              <p className="ad-none">No one booked yet.</p>
             ) : (
-              <button
-                className="ad-mark"
-                disabled={busy}
-                onClick={() => {
-                  const n = c.bookings.filter(
-                    (b) => b.attendance !== "Cancelled",
-                  ).length;
-                  const warn = n
-                    ? `\n\n${n} ${n === 1 ? "person is" : "people are"} booked in. Their place will be released and you'll need to tell them — no email is sent.`
-                    : "";
-                  if (
-                    confirm(
-                      `No class on ${c.day} ${c.date}?${warn}\n\nYou can put it back on afterwards.`,
-                    )
-                  ) {
-                    act("/api/admin/occurrence", "POST", {
-                      sessionId: c.sessionId,
-                      date: c.dateISO,
-                      cancelled: true,
-                    });
-                  }
-                }}
-              >
-                No class this week
-              </button>
+              <ul className="ad-people">
+                {c.bookings.map((b) => (
+                  <li key={b.id} className={statusOf(b) === "Cancelled" ? "cancelled" : ""}>
+                    <div className="ad-person">
+                      <span className="ad-name">
+                        {b.name}
+                        {b.isMember && <span className="ad-badge member">Member</span>}
+                        {b.firstTime && <span className="ad-badge first">1st time</span>}
+                      </span>
+                      {b.phone && <span className="ad-phone">{b.phone}</span>}
+                    </div>
+                    <div className="ad-actions">
+                      {(["Attended", "No-show", "Cancelled"] as const).map((s) => (
+                        <button
+                          key={s}
+                          disabled={busy}
+                          className={`ad-mark ${s.toLowerCase().replace("-", "")}${
+                            statusOf(b) === s ? " on" : ""
+                          }`}
+                          onClick={() => mark(b, s)}
+                        >
+                          {s === "Cancelled" ? "Cancel" : s}
+                        </button>
+                      ))}
+                    </div>
+                  </li>
+                ))}
+              </ul>
             )}
-          </div>
-          {c.bookings.length === 0 ? (
-            <p className="ad-none">No one booked yet.</p>
-          ) : (
-            <ul className="ad-people">
-              {c.bookings.map((b) => (
-                <li key={b.id} className={b.attendance === "Cancelled" ? "cancelled" : ""}>
-                  <div className="ad-person">
-                    <span className="ad-name">
-                      {b.name}
-                      {b.isMember && <span className="ad-badge member">Member</span>}
-                      {b.firstTime && <span className="ad-badge first">1st time</span>}
-                    </span>
-                    {b.phone && <span className="ad-phone">{b.phone}</span>}
-                  </div>
-                  <div className="ad-actions">
-                    {(["Attended", "No-show", "Cancelled"] as const).map((s) => (
-                      <button
-                        key={s}
-                        disabled={busy}
-                        className={`ad-mark ${s.toLowerCase().replace("-", "")}${
-                          b.attendance === s ? " on" : ""
-                        }`}
-                        onClick={() =>
-                          act("/api/admin/attendance", "POST", {
-                            bookingId: b.id,
-                            status: b.attendance === s ? "Booked" : s,
-                          })
-                        }
-                      >
-                        {s === "Cancelled" ? "Cancel" : s}
-                      </button>
-                    ))}
-                  </div>
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
-      ))}
+          </section>
+        );
+      })}
     </div>
   );
 }

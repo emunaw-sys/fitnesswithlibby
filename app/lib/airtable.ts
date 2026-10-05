@@ -221,24 +221,37 @@ type AirtableRecord = {
 
 const authHeaders = { Authorization: `Bearer ${TOKEN}` };
 
-/* Admin reads are cached for a short window and tagged so any write can
- * bust them instantly (see revalidateTag in the admin API routes). This
- * keeps Libby's admin page from re-reading Airtable on every single load,
- * which protects the free plan's monthly API-call budget. */
-export const ADMIN_TAG = "admin-data";
-const ADMIN_TTL = 60; // seconds
+/* Every read is cached and tagged with the table it came from, and every
+ * write expires just the tables it changed (refreshTables, called from the
+ * API routes). Marking attendance re-reads bookings and nothing else; adding
+ * a member re-reads members and nothing else. Between writes, reloading the
+ * admin page or the schedule costs no Airtable calls at all — that's what
+ * keeps the site inside the free plan's 1,000 calls a month.
+ *
+ * Because every change made through the site expires its table straight
+ * away, the cache window only matters for edits made directly in Airtable:
+ * those show up after READ_TTL, or at once when Libby presses "Refresh from
+ * Airtable" on the admin page. It's long on purpose — visits to this site
+ * are hours apart, so any window shorter than that saves almost nothing.
+ *
+ * Reads that decide something (is there still a place? is this person a
+ * member?) bypass the cache entirely; see readSessionState and
+ * findMemberByEmail. */
+const READ_TTL = 60 * 60 * 24; // 24 hours, in seconds
+
+export type Table = "Sessions" | "Booking" | "Members";
+export const tableTag = (table: Table) => `airtable:${table}`;
 
 /* Read every record from a table (following pagination).
  * `revalidate` caches the result for N seconds so we don't hit Airtable's
  * API on every single page view — important for staying inside the free
- * plan's monthly API-call limit. A booking busts this cache immediately
- * (see revalidatePath in app/api/book/route.ts), so spots still update
- * right after someone books. */
+ * plan's monthly API-call limit. Each result is tagged with its table, so
+ * a booking expires the Booking reads immediately (refreshTables) and spots
+ * still update right after someone books. */
 async function fetchAll(
-  table: string,
+  table: Table,
   params: Record<string, string> = {},
   revalidate = 60,
-  tags?: string[],
 ): Promise<AirtableRecord[]> {
   const out: AirtableRecord[] = [];
   let offset: string | undefined;
@@ -247,7 +260,7 @@ async function fetchAll(
     if (offset) sp.set("offset", offset);
     const res = await fetch(`${API}/${encodeURIComponent(table)}?${sp}`, {
       headers: authHeaders,
-      next: tags ? { revalidate, tags } : { revalidate },
+      next: { revalidate, tags: [tableTag(table)] },
     });
     if (!res.ok) {
       throw new Error(
@@ -316,14 +329,13 @@ export async function getSchedule(): Promise<DaySchedule[]> {
   // Only fetch bookings for today or later — past bookings (attendance
   // history) never affect availability and keep this query small forever.
   const [sessions, bookings] = await Promise.all([
-    // Classes rarely change, so cache them for 10 minutes.
-    fetchAll("Sessions", {}, 600),
-    // Bookings drive "spots left" — refresh every 60s (and instantly on a
-    // new booking, via revalidatePath).
+    fetchAll("Sessions", {}, READ_TTL),
+    // Bookings drive "spots left"; every booking expires this at once (via
+    // refreshTables), so the count is current without re-reading per visit.
     fetchAll(
       "Booking",
       { filterByFormula: "IS_AFTER({Class Date}, DATEADD(TODAY(), -1, 'days'))" },
-      60,
+      READ_TTL,
     ),
   ]);
 
@@ -487,7 +499,7 @@ export async function createBooking(
   // Look up the session's day so we stamp the correct upcoming date.
   const sres = await fetch(`${API}/Sessions/${booking.sessionId}`, {
     headers: authHeaders,
-    next: { revalidate: 600 },
+    next: { revalidate: READ_TTL, tags: [tableTag("Sessions")] },
   });
   if (!sres.ok) {
     throw new Error(
@@ -631,12 +643,11 @@ export type RosterClass = {
 /** This week's classes, each with the people booked in — for the roster. */
 export async function getRoster(weekOffset = 0): Promise<RosterClass[]> {
   const [sessions, bookings] = await Promise.all([
-    fetchAll("Sessions", {}, ADMIN_TTL, [ADMIN_TAG]),
+    fetchAll("Sessions", {}, READ_TTL),
     fetchAll(
       "Booking",
       { filterByFormula: "IS_AFTER({Class Date}, DATEADD(TODAY(), -1, 'days'))" },
-      ADMIN_TTL,
-      [ADMIN_TAG],
+      READ_TTL,
     ),
   ]);
 
@@ -807,14 +818,13 @@ export async function getMembers(): Promise<Member[]> {
   const month = now.getMonth() + 1; // 1–12
 
   const [recs, bookings] = await Promise.all([
-    fetchAll("Members", {}, 0),
+    fetchAll("Members", {}, READ_TTL),
     fetchAll(
       "Booking",
       {
         filterByFormula: `AND(YEAR({Class Date}) = ${year}, MONTH({Class Date}) = ${month})`,
       },
-      ADMIN_TTL,
-      [ADMIN_TAG],
+      READ_TTL,
     ),
   ]);
 
@@ -910,7 +920,7 @@ export type StudioClass = {
 
 /** Every class, active and archived — the manage-classes screen shows both. */
 export async function getClasses(): Promise<StudioClass[]> {
-  const recs = await fetchAll("Sessions", {}, ADMIN_TTL, [ADMIN_TAG]);
+  const recs = await fetchAll("Sessions", {}, READ_TTL);
   return recs
     .filter((r) => r.fields.Name)
     .map((r) => ({
@@ -1084,14 +1094,13 @@ export async function getMonthRoster(): Promise<MonthDay[]> {
   const month = now.getMonth() + 1; // 1–12
 
   const [sessions, bookings] = await Promise.all([
-    fetchAll("Sessions", {}, ADMIN_TTL, [ADMIN_TAG]),
+    fetchAll("Sessions", {}, READ_TTL),
     fetchAll(
       "Booking",
       {
         filterByFormula: `AND(YEAR({Class Date}) = ${year}, MONTH({Class Date}) = ${month})`,
       },
-      ADMIN_TTL,
-      [ADMIN_TAG],
+      READ_TTL,
     ),
   ]);
 

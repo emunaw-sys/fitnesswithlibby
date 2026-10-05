@@ -138,6 +138,20 @@
   border-color: #d9cdd4;
   color: var(--ad-ink);
 }
+.ad-logout:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+.ad-refresh {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 22px;
+  font-size: 13px;
+  color: var(--ad-muted);
+}
 
 .ad-tabs {
   display: inline-flex;

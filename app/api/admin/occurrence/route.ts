@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
-import { revalidatePath } from "next/cache";
 import { isAuthed } from "@/app/lib/adminAuth";
 import { setOccurrenceCancelled } from "@/app/lib/airtable";
+import { refreshTables } from "@/app/lib/refreshTables";
 
 /**
  * POST /api/admin/occurrence
@@ -31,8 +31,7 @@ export async function POST(request: Request) {
       date,
       Boolean(cancelled),
     );
-    revalidatePath("/admin");
-    revalidatePath("/book");
+    refreshTables("Sessions", "Booking");
     return NextResponse.json({ ok: true, affected });
   } catch (err) {
     console.error("occurrence update failed:", err);

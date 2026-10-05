@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
-import { revalidatePath } from "next/cache";
 import { isAuthed } from "@/app/lib/adminAuth";
 import { setAttendance } from "@/app/lib/airtable";
+import { refreshTables } from "@/app/lib/refreshTables";
 
 // Mark a booking Attended / No-show / Cancelled (or back to Booked).
 export async function POST(request: Request) {
@@ -17,7 +17,7 @@ export async function POST(request: Request) {
   }
   try {
     await setAttendance(body.bookingId, body.status);
-    revalidatePath("/admin");
+    refreshTables("Booking");
     return NextResponse.json({ ok: true });
   } catch (err) {
     console.error("attendance update failed:", err);

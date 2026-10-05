@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { revalidatePath } from "next/cache";
 import { BookingFullError, createBooking } from "@/app/lib/airtable";
+import { refreshTables } from "@/app/lib/refreshTables";
 
 /**
  * POST /api/book
@@ -44,8 +44,7 @@ export async function POST(request: Request) {
     });
     // Bust the cached schedule so the new "spots left" shows immediately,
     // and the admin roster too.
-    revalidatePath("/book");
-    revalidatePath("/admin");
+    refreshTables("Booking");
     return NextResponse.json({ ok: true, dates, added, alreadyHeld });
   } catch (err) {
     // "That class just filled up" is the user's problem to fix, not a fault —

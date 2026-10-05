@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
-import { revalidatePath } from "next/cache";
 import { isAuthed } from "@/app/lib/adminAuth";
 import { addMember, setMemberStatus } from "@/app/lib/airtable";
+import { refreshTables } from "@/app/lib/refreshTables";
 
 // Add a new member.
 export async function POST(request: Request) {
@@ -28,7 +28,7 @@ export async function POST(request: Request) {
       phone: typeof phone === "string" ? phone.trim() : undefined,
       type: typeof type === "string" ? type : undefined,
     });
-    revalidatePath("/admin");
+    refreshTables("Members");
     return NextResponse.json({ ok: true });
   } catch (err) {
     console.error("add member failed:", err);
@@ -50,7 +50,7 @@ export async function PATCH(request: Request) {
   }
   try {
     await setMemberStatus(body.id, body.status);
-    revalidatePath("/admin");
+    refreshTables("Members");
     return NextResponse.json({ ok: true });
   } catch (err) {
     console.error("member status update failed:", err);
