@@ -14,6 +14,8 @@ import { isActiveMember } from "@/app/lib/airtable";
  * endpoint is public, so it must not become a way to look people up. The
  * server re-checks membership when the booking is actually written, so a
  * forged `true` here buys nothing.
+ *
+ * spam-filter: not needed — a read-only lookup that saves nothing.
  */
 export async function POST(request: Request) {
   let body: unknown;

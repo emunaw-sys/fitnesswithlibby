@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { BookingFullError, createBooking } from "@/app/lib/airtable";
 import { refreshTables } from "@/app/lib/refreshTables";
+import { isSpam } from "@/app/lib/spam";
 
 /**
  * POST /api/book
@@ -20,8 +21,11 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Invalid request." }, { status: 400 });
   }
 
-  const { sessionId, name, email, phone, firstTime, weeks } =
-    (body as Record<string, unknown>) ?? {};
+  const fields = (body as Record<string, unknown>) ?? {};
+  const { sessionId, name, email, phone, firstTime, weeks } = fields;
+
+  // Pretend it worked, but don't save it — a bot must not take up a place.
+  if (isSpam(fields)) return NextResponse.json({ ok: true, dates: [] });
 
   if (typeof sessionId !== "string" || !sessionId) {
     return NextResponse.json({ error: "Missing class." }, { status: 400 });

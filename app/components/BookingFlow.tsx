@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { SERIES_WEEKS, type DaySchedule } from "@/app/lib/airtable";
 
 /* ------------------------------------------------------------------ *
@@ -39,6 +39,12 @@ export default function BookingFlow({ schedule }: { schedule: DaySchedule[] }) {
   const [weeks, setWeeks] = useState(1);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Spam filter: the hidden honeypot, and when the form loaded (see app/lib/spam.ts).
+  const honeypot = useRef<HTMLInputElement>(null);
+  const loadedAt = useRef(0);
+  useEffect(() => {
+    loadedAt.current = Date.now();
+  }, []);
   const [confirmed, setConfirmed] = useState<{
     className: string;
     when: string;
@@ -135,6 +141,8 @@ export default function BookingFlow({ schedule }: { schedule: DaySchedule[] }) {
           phone: details.phone.trim(),
           firstTime: details.firstTime,
           weeks: effectiveWeeks,
+          website: honeypot.current?.value ?? "",
+          elapsedMs: Date.now() - loadedAt.current,
         }),
       });
       if (!res.ok) {
@@ -403,6 +411,17 @@ export default function BookingFlow({ schedule }: { schedule: DaySchedule[] }) {
             />
             <span>This is my first class at the studio</span>
           </label>
+          {/* Honeypot: hidden from people, but bots fill it in. */}
+          <div className="c-hp" aria-hidden="true">
+            <label htmlFor="bf-website">Website</label>
+            <input
+              id="bf-website"
+              ref={honeypot}
+              type="text"
+              tabIndex={-1}
+              autoComplete="off"
+            />
+          </div>
           {isMember && weeksAvailable > 1 && (
             <div className="bf-series">
               <span className="bf-series-lab">
