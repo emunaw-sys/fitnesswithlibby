@@ -619,6 +619,12 @@ export function FinalCta() {
           <label htmlFor="cf-msg">Message</label>
           <textarea id="cf-msg" rows={3} />
 
+          {/* Honeypot: hidden from people, but bots fill it in. */}
+          <div className="c-hp" aria-hidden="true">
+            <label htmlFor="cf-website">Website</label>
+            <input id="cf-website" type="text" tabIndex={-1} autoComplete="off" />
+          </div>
+
           <button className="c-submit" type="submit">
             Let&rsquo;s Talk
           </button>

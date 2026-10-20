@@ -260,6 +260,7 @@ export default function SiteInteractions() {
     );
 
     const form = document.querySelector<HTMLFormElement>(".c-form");
+    const formLoadedAt = Date.now();
     const onSubmit = async (e: Event) => {
       e.preventDefault();
       if (!form) return;
@@ -289,7 +290,15 @@ export default function SiteInteractions() {
         const res = await fetch("/api/contact", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ name, email, phone, interest, message }),
+          body: JSON.stringify({
+            name,
+            email,
+            phone,
+            interest,
+            message,
+            website: val("cf-website"),
+            elapsedMs: Date.now() - formLoadedAt,
+          }),
         });
         if (!res.ok) throw new Error();
         form.innerHTML =
