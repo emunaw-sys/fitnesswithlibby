@@ -30,7 +30,31 @@ export type Price = {
   classes: number;
   total: number;
   twiceAWeek: boolean;
+  /**
+   * Twice a week only: the whole month, this booking plus the classes they
+   * already hold. Their earlier class drops to the cheaper rate too, so this
+   * is what they actually owe for the month.
+   */
+  month?: { classes: number; total: number };
 };
+
+/**
+ * A month booking, given how many classes they already hold in other weekly
+ * classes that month. Any at all makes it twice a week, for every class.
+ */
+export function monthPrice(classes: number, otherClasses: number): Price {
+  const twiceAWeek = otherClasses > 0;
+  const perClass = monthRate(twiceAWeek);
+  return {
+    perClass,
+    classes,
+    total: perClass * classes,
+    twiceAWeek,
+    month: twiceAWeek
+      ? { classes: classes + otherClasses, total: perClass * (classes + otherClasses) }
+      : undefined,
+  };
+}
 
 /* "2026-11-03" or a Date -> "2026-11" */
 export function monthKey(d: string | Date): string {

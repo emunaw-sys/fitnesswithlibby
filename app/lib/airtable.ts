@@ -40,7 +40,7 @@ const API = `https://api.airtable.com/v0/${BASE}`;
 
 import {
   monthKey,
-  monthRate,
+  monthPrice,
   nextMonthKey,
   singleClassRate,
   type Price,
@@ -332,12 +332,52 @@ async function findMemberIdByEmail(email: string): Promise<string | undefined> {
 }
 
 /**
- * Is this email an active member? Backs the booking form's series option.
+ * Is this email an active member? Backs the booking form's drop-in price.
  * Deliberately returns a bare boolean and never a name — the endpoint is
  * public, so it must not become a way to look people up.
  */
 export async function isActiveMember(email: string): Promise<boolean> {
   return (await findMemberByEmail(email))?.active === true;
+}
+
+/* Every booking from today on — the query getSchedule makes, so the two share
+ * one cache entry, and every booking write expires it. */
+function readUpcomingBookings(): Promise<AirtableRecord[]> {
+  return fetchAll(
+    "Booking",
+    { filterByFormula: "IS_AFTER({Class Date}, DATEADD(TODAY(), -1, 'days'))" },
+    READ_TTL,
+  );
+}
+
+export type HeldMonth = { sessionId: string; month: string; classes: number };
+
+/**
+ * Which classes this email is already booked into, per month, from today on.
+ * Lets the booking form price a second weekly class at the twice-a-week rate
+ * before they book, rather than only on the confirmation. Class ids, months
+ * and counts only — never dates or names.
+ */
+export async function getHeldMonths(email: string): Promise<HeldMonth[]> {
+  const mine = email.trim().toLowerCase();
+  if (!mine) return [];
+  const counts = new Map<string, number>();
+  for (const b of await readUpcomingBookings()) {
+    if (b.fields["Attendance"] === "Cancelled") continue;
+    const rowEmail = b.fields["Email"];
+    const date = b.fields["Class Date"];
+    const links = b.fields["Sessions"];
+    if (typeof rowEmail !== "string" || rowEmail.trim().toLowerCase() !== mine) continue;
+    if (typeof date !== "string" || !Array.isArray(links)) continue;
+    for (const sid of links) {
+      const key = `${sid}|${monthKey(date)}`;
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    }
+  }
+  return [...counts].map(([key, classes]) => {
+    const [sessionId, month] = key.split("|");
+    return { sessionId, month, classes };
+  });
 }
 
 /**
@@ -351,11 +391,7 @@ export async function getSchedule(): Promise<DaySchedule[]> {
     fetchAll("Sessions", {}, READ_TTL),
     // Bookings drive "spots left"; every booking expires this at once (via
     // refreshTables), so the count is current without re-reading per visit.
-    fetchAll(
-      "Booking",
-      { filterByFormula: "IS_AFTER({Class Date}, DATEADD(TODAY(), -1, 'days'))" },
-      READ_TTL,
-    ),
+    readUpcomingBookings(),
   ]);
 
   // Count current bookings per (session, class date). Cancelled bookings
@@ -483,19 +519,19 @@ export class BookingFullError extends Error {
  * how many places are taken, and which of those dates this person already
  * holds. Cancelled bookings release their place, matching getSchedule.
  *
- * Also whether this person is booked into a *different* class in `month` —
- * that makes them twice a week, and the cheaper rate. It comes from the same
- * read, so it costs no extra API call.
+ * Also how many classes this person holds in *other* classes in `month` —
+ * any at all makes them twice a week, and the cheaper rate. It comes from the
+ * same read, so it costs no extra API call.
  */
 async function readSessionState(
   sessionId: string,
   isoDates: string[],
   email: string,
   month?: string,
-): Promise<{ taken: Map<string, number>; held: Set<string>; twiceAWeek: boolean }> {
+): Promise<{ taken: Map<string, number>; held: Set<string>; otherClasses: number }> {
   const taken = new Map<string, number>(isoDates.map((d) => [d, 0]));
   const held = new Set<string>();
-  let twiceAWeek = false;
+  let otherClasses = 0;
   const mine = email.trim().toLowerCase();
   const rows = await fetchAll(
     "Booking",
@@ -513,14 +549,14 @@ async function readSessionState(
       typeof rowEmail === "string" &&
       rowEmail.trim().toLowerCase() === mine;
     if (!links.includes(sessionId)) {
-      if (isMine && month && date.startsWith(month)) twiceAWeek = true;
+      if (isMine && month && date.startsWith(month)) otherClasses++;
       continue;
     }
     if (!taken.has(date)) continue;
     taken.set(date, (taken.get(date) ?? 0) + 1);
     if (isMine) held.add(date);
   }
-  return { taken, held, twiceAWeek };
+  return { taken, held, otherClasses };
 }
 
 /**
@@ -589,7 +625,7 @@ export async function createBooking(booking: NewBooking): Promise<{
   // Which of those dates actually have room. Availability is re-read
   // uncached: the cached schedule the client saw may be up to 60s stale, and
   // two people can pick the last place in that window.
-  const { taken, held, twiceAWeek } = await readSessionState(
+  const { taken, held, otherClasses } = await readSessionState(
     booking.sessionId,
     wantedDates,
     booking.email,
@@ -612,7 +648,7 @@ export async function createBooking(booking: NewBooking): Promise<{
         dates: mine.map(formatLongDate),
         added: 0,
         alreadyHeld: mine.length,
-        price: priceFor(mine.length, month, twiceAWeek, member?.active === true),
+        price: priceFor(mine.length, month, otherClasses, member?.active === true),
       };
     }
     throw new BookingFullError(
@@ -664,7 +700,7 @@ export async function createBooking(booking: NewBooking): Promise<{
     dates: confirmed.map(formatLongDate),
     added: openDates.length,
     alreadyHeld: confirmed.length - openDates.length,
-    price: priceFor(confirmed.length, month, twiceAWeek, member?.active === true),
+    price: priceFor(confirmed.length, month, otherClasses, member?.active === true),
   };
 }
 
@@ -673,16 +709,14 @@ export async function createBooking(booking: NewBooking): Promise<{
 function priceFor(
   classes: number,
   month: string | undefined,
-  twiceAWeek: boolean,
+  otherClasses: number,
   member: boolean,
 ): Price {
-  const perClass = month ? monthRate(twiceAWeek) : singleClassRate(member);
-  return {
-    perClass,
-    classes,
-    total: perClass * classes,
-    twiceAWeek: Boolean(month) && twiceAWeek,
-  };
+  if (!month) {
+    const perClass = singleClassRate(member);
+    return { perClass, classes, total: perClass * classes, twiceAWeek: false };
+  }
+  return monthPrice(classes, otherClasses);
 }
 
 /* ================================================================== *

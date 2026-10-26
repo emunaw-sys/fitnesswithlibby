@@ -1,11 +1,12 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { ClassRun, DaySchedule } from "@/app/lib/airtable";
+import type { ClassRun, DaySchedule, HeldMonth } from "@/app/lib/airtable";
 import {
   PRICE,
   monthKey,
   monthName,
+  monthPrice,
   nextMonthKey,
   nextMonthOpen,
   singleClassRate,
@@ -84,10 +85,14 @@ export default function BookingFlow({ schedule }: { schedule: DaySchedule[] }) {
   const [dayIdx, setDayIdx] = useState<number | null>(null);
   const [classIdx, setClassIdx] = useState<number | null>(null);
   const [details, setDetails] = useState<Details>(EMPTY_DETAILS);
-  // The email we've confirmed belongs to an active member. Membership is then
-  // derived rather than mirrored, so a changed address can't leave a stale
-  // "you're a member" behind.
-  const [memberEmail, setMemberEmail] = useState<string | null>(null);
+  // What the server told us about an email: whether it's an active member,
+  // and which classes it already holds. Kept with the address it answered
+  // for and derived from, so a changed address can't leave a stale answer.
+  const [lookup, setLookup] = useState<{
+    email: string;
+    member: boolean;
+    held: HeldMonth[];
+  } | null>(null);
   const [plan, setPlan] = useState<PlanKey>("single");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -105,14 +110,17 @@ export default function BookingFlow({ schedule }: { schedule: DaySchedule[] }) {
     alreadyHeld: number;
     name: string;
     email: string;
+    month: string | null;
     price: Price | null;
   } | null>(null);
 
   /* Members pay the member rate for a single class rather than the drop-in
-   * price. We ask the server once the email looks complete, debounced so
-   * typing doesn't spend the free plan's API budget. */
+   * price, and anyone already booked into another class that month pays the
+   * twice-a-week rate. We ask the server once the email looks complete,
+   * debounced so typing doesn't spend the free plan's API budget. */
   const email = details.email.trim();
-  const isMember = memberEmail !== null && memberEmail === email;
+  const known = lookup !== null && lookup.email === email ? lookup : null;
+  const isMember = known?.member === true;
 
   useEffect(() => {
     if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return;
@@ -125,9 +133,15 @@ export default function BookingFlow({ schedule }: { schedule: DaySchedule[] }) {
           body: JSON.stringify({ email }),
         });
         const data = await res.json();
-        if (live) setMemberEmail(data?.member ? email : null);
+        if (live) {
+          setLookup({
+            email,
+            member: data?.member === true,
+            held: Array.isArray(data?.held) ? data.held : [],
+          });
+        }
       } catch {
-        if (live) setMemberEmail(null); // never block a booking over this
+        if (live) setLookup(null); // never block a booking over this
       }
     }, 500);
     return () => {
@@ -149,15 +163,30 @@ export default function BookingFlow({ schedule }: { schedule: DaySchedule[] }) {
   const chosen = options.find((o) => o.key === plan) ?? options[0] ?? null;
   const isMonth = chosen !== null && chosen.key !== "single";
 
-  /* The summary before booking. Full weeks aren't booked or charged. The
-   * twice-a-week rate depends on their other bookings, which only the server
-   * sees, so the confirmation has the final figure. */
+  /* Classes they already hold in other weekly classes, per month — any at
+   * all makes a month booking twice a week. */
+  const otherClassesIn = (month: string) =>
+    (known?.held ?? [])
+      .filter((h) => h.month === month && h.sessionId !== selectedClass?.id)
+      .reduce((n, h) => n + h.classes, 0);
+
+  /* The summary before booking, priced the same way the server will price
+   * it. Full weeks aren't booked or charged. */
   const quote = useMemo(() => {
     if (!chosen) return null;
     const open = chosen.dates.filter((r) => r.spots > 0);
-    const perClass = isMonth ? PRICE.monthly : singleClassRate(isMember);
-    return { open, full: chosen.dates.length - open.length, perClass, total: perClass * open.length };
-  }, [chosen, isMonth, isMember]);
+    const price: Price = isMonth
+      ? monthPrice(open.length, otherClassesIn(chosen.key))
+      : {
+          perClass: singleClassRate(isMember),
+          classes: open.length,
+          total: singleClassRate(isMember) * open.length,
+          twiceAWeek: false,
+        };
+    return { open, full: chosen.dates.length - open.length, price };
+    // otherClassesIn only reads `known` and `selectedClass`.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chosen, isMonth, isMember, known, selectedClass]);
 
   const detailsValid =
     selectedClass !== null &&
@@ -221,6 +250,7 @@ export default function BookingFlow({ schedule }: { schedule: DaySchedule[] }) {
         alreadyHeld: Number(data?.alreadyHeld ?? 0),
         name: details.name.trim(),
         email: details.email.trim(),
+        month: isMonth ? chosen.key : null,
         price: data?.price ?? null,
       });
     } catch (err) {
@@ -304,14 +334,33 @@ export default function BookingFlow({ schedule }: { schedule: DaySchedule[] }) {
           </dl>
           {confirmed.price && confirmed.price.classes > 0 && (
             <div className="bf-total">
-              <span className="bf-total-lab">To pay</span>
-              <span className="bf-total-sum">{shekels(confirmed.price.total)}</span>
-              <span className="bf-total-calc">
-                {confirmed.price.classes}{" "}
-                {confirmed.price.classes === 1 ? "class" : "classes"} ×{" "}
-                {shekels(confirmed.price.perClass)}
-                {confirmed.price.twiceAWeek && " — your twice-a-week rate"}
-              </span>
+              {confirmed.price.month && confirmed.month ? (
+                <>
+                  <span className="bf-total-lab">
+                    Your {monthName(confirmed.month)} total
+                  </span>
+                  <span className="bf-total-sum">
+                    {shekels(confirmed.price.month.total)}
+                  </span>
+                  <span className="bf-total-calc">
+                    {confirmed.price.month.classes} classes ×{" "}
+                    {shekels(confirmed.price.perClass)}{" "}
+                    — your twice-a-week rate, including the classes you&rsquo;d
+                    already booked. Already paid for those? Just send the
+                    difference.
+                  </span>
+                </>
+              ) : (
+                <>
+                  <span className="bf-total-lab">To pay</span>
+                  <span className="bf-total-sum">{shekels(confirmed.price.total)}</span>
+                  <span className="bf-total-calc">
+                    {confirmed.price.classes}{" "}
+                    {confirmed.price.classes === 1 ? "class" : "classes"} ×{" "}
+                    {shekels(confirmed.price.perClass)}
+                  </span>
+                </>
+              )}
             </div>
           )}
 
@@ -450,7 +499,7 @@ export default function BookingFlow({ schedule }: { schedule: DaySchedule[] }) {
                     <span className="bf-pick-cap">
                       {o.key === "single"
                         ? `${shekels(singleClassRate(isMember))} ${isMember ? "member rate" : "drop-in"}`
-                        : `${shekels(PRICE.monthly)} a class`}
+                        : `${shekels(monthPrice(1, otherClassesIn(o.key)).perClass)} a class`}
                     </span>
                   </button>
                 );
@@ -551,11 +600,12 @@ export default function BookingFlow({ schedule }: { schedule: DaySchedule[] }) {
               {isMonth ? chosen.label : "Your class"} · {selectedClass.name},{" "}
               {selectedClass.time}
             </span>
-            <strong>{shekels(quote.total)}</strong>
+            <strong>{shekels(quote.price.total)}</strong>
           </div>
           <p className="bf-quote-calc">
             {quote.open.length} {quote.open.length === 1 ? "class" : "classes"} ×{" "}
-            {shekels(quote.perClass)}
+            {shekels(quote.price.perClass)}
+            {quote.price.twiceAWeek && " — twice-a-week rate"}
           </p>
           <ul className="bf-quote-dates">
             {chosen.dates.map((r) => (
@@ -570,11 +620,22 @@ export default function BookingFlow({ schedule }: { schedule: DaySchedule[] }) {
               Full weeks aren&rsquo;t booked or charged.
             </p>
           )}
-          {isMonth && (
+          {isMonth && quote.price.month && (
+            <p className="bf-quote-month">
+              You&rsquo;re already booked into another class in{" "}
+              {monthName(chosen.key)}, so every class that month is{" "}
+              {shekels(quote.price.perClass)}. Your {monthName(chosen.key)} total:{" "}
+              <strong>
+                {quote.price.month.classes} classes ×{" "}
+                {shekels(quote.price.perClass)} ={" "}
+                {shekels(quote.price.month.total)}
+              </strong>
+            </p>
+          )}
+          {isMonth && !quote.price.month && (
             <p className="bf-series-note">
               Coming twice a week? Booking a second class for {monthName(chosen.key)}{" "}
-              drops it to {shekels(PRICE.twiceWeekly)} a class — worked out when you
-              book.
+              makes every class that month {shekels(PRICE.twiceWeekly)}.
             </p>
           )}
         </div>
@@ -589,7 +650,7 @@ export default function BookingFlow({ schedule }: { schedule: DaySchedule[] }) {
         {submitting
           ? "Booking…"
           : isMonth && quote
-            ? `Book ${quote.open.length} classes · ${shekels(quote.total)}`
+            ? `Book ${quote.open.length} classes · ${shekels(quote.price.total)}`
             : "Book my place"}
       </button>
       {error && <p className="bf-hint bf-error">{error}</p>}
