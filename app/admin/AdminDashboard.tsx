@@ -911,6 +911,7 @@ function PaymentsView({
   if (payments === null) {
     return (
       <div className="ad-setup">
+        <SetupCheck />
         <p>
           <strong>The Payments table isn&rsquo;t set up yet.</strong> Bookings
           still work — they just aren&rsquo;t tallied here until it exists.
@@ -1032,6 +1033,48 @@ function PaymentsView({
         A cancelled class or money rolled over? Change their Amount Owed in
         Airtable, then press &ldquo;Refresh from Airtable&rdquo; on the home page.
       </p>
+      <p className="ad-paynote">
+        A website booking not showing up here?
+      </p>
+      <SetupCheck />
+    </div>
+  );
+}
+
+/* Asks the server whether the Payments table matches what the site writes,
+ * so a misspelt field shows up here rather than as silently missing rows. */
+function SetupCheck() {
+  const [result, setResult] = useState<string[] | "busy" | "failed" | null>(null);
+  async function check() {
+    setResult("busy");
+    try {
+      const res = await fetch("/api/admin/payments");
+      const d = (await res.json()) as { problems?: string[] };
+      setResult(res.ok && d.problems ? d.problems : "failed");
+    } catch {
+      setResult("failed");
+    }
+  }
+  return (
+    <div className="ad-check">
+      <button className="ad-mark" disabled={result === "busy"} onClick={check}>
+        {result === "busy" ? "Checking…" : "Check the Payments table setup"}
+      </button>
+      {result === "failed" && <p className="ad-due">Couldn&rsquo;t reach Airtable — try again.</p>}
+      {Array.isArray(result) && result.length === 0 && (
+        <p className="ad-paid">
+          The table is set up correctly. If a booking still didn&rsquo;t appear,
+          check it was for classes that person hadn&rsquo;t already booked — a
+          repeat booking adds nothing.
+        </p>
+      )}
+      {Array.isArray(result) && result.length > 0 && (
+        <ul className="ad-problems">
+          {result.map((p) => (
+            <li key={p}>{p}</li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }

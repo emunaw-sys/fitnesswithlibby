@@ -1313,6 +1313,67 @@ export async function createEnquiry(e: Enquiry): Promise<void> {
 
 export const PAYMENT_METHODS = ["Bit", "Bank transfer", "Cash"] as const;
 
+/* The fields the site reads and writes, and the Airtable types that work. */
+const PAYMENT_FIELDS: { name: string; types: string[]; want: string }[] = [
+  { name: "Name", types: ["singleLineText", "multilineText"], want: "single line text" },
+  { name: "Email", types: ["email", "singleLineText"], want: "email" },
+  { name: "Month", types: ["singleLineText", "singleSelect"], want: "single line text" },
+  { name: "Classes", types: ["number"], want: "number" },
+  { name: "Amount Owed", types: ["number", "currency"], want: "number" },
+  { name: "Amount Paid", types: ["number", "currency"], want: "number" },
+  { name: "Method", types: ["singleSelect", "singleLineText"], want: "single select" },
+  { name: "Twice a week", types: ["checkbox"], want: "checkbox" },
+];
+
+/**
+ * Compare the base's Payments table with what the site expects, using
+ * Airtable's schema API (the token has schema.bases:read). Returns plain
+ * sentences for the admin page — an empty list means it's set up right.
+ */
+export async function checkPaymentsSetup(): Promise<string[]> {
+  const res = await fetch(`https://api.airtable.com/v0/meta/bases/${BASE}/tables`, {
+    headers: authHeaders,
+    cache: "no-store",
+  });
+  if (!res.ok) {
+    return [
+      `Couldn't read the base's layout (Airtable said ${res.status}). The access token may be missing the schema.bases:read permission.`,
+    ];
+  }
+  const { tables } = (await res.json()) as {
+    tables: { name: string; fields: { name: string; type: string }[] }[];
+  };
+  const table = tables.find((t) => t.name === "Payments");
+  if (!table) {
+    const close = tables.find((t) => t.name.trim().toLowerCase().startsWith("payment"));
+    return [
+      close
+        ? `The table is called "${close.name}" — rename it to exactly "Payments".`
+        : `There's no table called "Payments" in this base. Tables found: ${tables.map((t) => t.name).join(", ")}.`,
+    ];
+  }
+  const problems: string[] = [];
+  for (const f of PAYMENT_FIELDS) {
+    const field = table.fields.find((x) => x.name === f.name);
+    if (!field) {
+      const close = table.fields.find(
+        (x) => x.name.trim().toLowerCase() === f.name.toLowerCase(),
+      );
+      problems.push(
+        close
+          ? `The field "${close.name}" should be spelled exactly "${f.name}".`
+          : `Missing the field "${f.name}" (${f.want}).`,
+      );
+    } else if (!f.types.includes(field.type)) {
+      problems.push(`"${f.name}" is a ${field.type} field — change it to ${f.want}.`);
+    }
+  }
+  if (table.fields[0]?.name !== "Name" && table.fields.some((x) => x.name === "Name")) {
+    problems.push(`"Name" should be the table's first (primary) field.`);
+  }
+  return problems;
+}
+
 export type Payment = {
   id: string;
   name: string;
@@ -1404,7 +1465,9 @@ async function addToPayments(p: {
     const write = await fetch(`${API}/Payments${rec ? `/${rec.id}` : ""}`, {
       method: rec ? "PATCH" : "POST",
       headers: { ...authHeaders, "Content-Type": "application/json" },
-      body: JSON.stringify({ fields }),
+      // typecast: a Month or Method set up as a dropdown, or an amount as
+      // text, still saves instead of being rejected.
+      body: JSON.stringify({ typecast: true, fields }),
     });
     if (!write.ok) throw new Error(`write ${write.status}: ${await write.text()}`);
   } catch (err) {

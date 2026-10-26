@@ -710,3 +710,6 @@
 @media (max-width: 640px){
   .ad-paysum strong{ font-size:17px; }
 }
+.ad-check{ margin:10px 0 4px; }
+.ad-check p{ margin-top:8px; font-weight:500; line-height:1.5; }
+.ad-problems{ margin:8px 0 0; padding-left:20px; font-size:13.5px; color:#b3261e; line-height:1.6; }

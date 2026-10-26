@@ -1,7 +1,25 @@
 import { NextResponse } from "next/server";
 import { isAuthed } from "@/app/lib/adminAuth";
-import { PAYMENT_METHODS, setPayment } from "@/app/lib/airtable";
+import {
+  PAYMENT_METHODS,
+  checkPaymentsSetup,
+  setPayment,
+} from "@/app/lib/airtable";
 import { refreshTables } from "@/app/lib/refreshTables";
+
+// Check the Payments table is set up the way the site expects.
+// -> { problems: string[] } — empty means all good.
+export async function GET() {
+  if (!(await isAuthed())) {
+    return NextResponse.json({ error: "Not authorized." }, { status: 401 });
+  }
+  try {
+    return NextResponse.json({ problems: await checkPaymentsSetup() });
+  } catch (err) {
+    console.error("payments setup check failed:", err);
+    return NextResponse.json({ error: "Couldn't reach Airtable." }, { status: 502 });
+  }
+}
 
 // Record a payment: the total paid for the month so far, and how.
 // { id, paid: 0, method: "" } clears it again.
