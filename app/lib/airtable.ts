@@ -12,8 +12,9 @@
  *                      availability resets automatically each week
  *                      without deleting any history.
  *   createBooking() -> writes a Booking row per class date (one class, or
- *                      every class in a month), marks them "Booked" and
- *                      works out what the booking costs.
+ *                      every class in a month), marks them "Booked",
+ *                      works out what the booking costs and adds it to
+ *                      the person's row in Payments for that month.
  * ------------------------------------------------------------------ */
 
 /* ====================================================================== *
@@ -39,6 +40,7 @@ const BASE = process.env.AIRTABLE_BASE_ID;
 const API = `https://api.airtable.com/v0/${BASE}`;
 
 import {
+  PRICE,
   monthKey,
   monthPrice,
   nextMonthKey,
@@ -258,7 +260,7 @@ const authHeaders = { Authorization: `Bearer ${TOKEN}` };
  * findMemberByEmail. */
 const READ_TTL = 60 * 60 * 24; // 24 hours, in seconds
 
-export type Table = "Sessions" | "Booking" | "Members";
+export type Table = "Sessions" | "Booking" | "Members" | "Payments";
 export const tableTag = (table: Table) => `airtable:${table}`;
 
 /* Read every record from a table (following pagination).
@@ -696,11 +698,24 @@ export async function createBooking(booking: NewBooking): Promise<{
       `Airtable createBooking failed (${res.status}): ${await res.text()}`,
     );
   }
+
+  // Charge only for the places just taken — ones they already held were
+  // charged when they first booked them.
+  const price = priceFor(confirmed.length, month, otherClasses, member?.active === true);
+  await addToPayments({
+    name: booking.name,
+    email: booking.email,
+    month: month ?? monthKey(openDates[0]),
+    classes: openDates.length,
+    perClass: price.perClass,
+    otherClasses: month ? otherClasses : 0,
+  });
+
   return {
     dates: confirmed.map(formatLongDate),
     added: openDates.length,
     alreadyHeld: confirmed.length - openDates.length,
-    price: priceFor(confirmed.length, month, otherClasses, member?.active === true),
+    price,
   };
 }
 
@@ -1281,5 +1296,164 @@ export async function createEnquiry(e: Enquiry): Promise<void> {
   });
   if (!res.ok) {
     throw new Error(`createEnquiry failed (${res.status}): ${await res.text()}`);
+  }
+}
+
+/* ================================================================== *
+ *  PAYMENTS — what each person owes for each month, and what's paid
+ * ================================================================== *
+ * One row per person (by email) per month. Website bookings add to it as
+ * they're made; Libby records payments from the admin page. She can also
+ * edit any row in Airtable directly — a cancelled class, a credit rolled
+ * over — and the site builds on her figure rather than overwriting it.
+ *
+ * The table is optional: until it exists in the base, bookings still save
+ * and the admin page says how to set it up.
+ * ================================================================== */
+
+export const PAYMENT_METHODS = ["Bit", "Bank transfer", "Cash"] as const;
+
+export type Payment = {
+  id: string;
+  name: string;
+  email: string;
+  month: string; // "2026-11"
+  classes: number;
+  owed: number;
+  paid: number;
+  method: string;
+  twiceAWeek: boolean;
+};
+
+function toPayment(r: AirtableRecord): Payment {
+  const num = (v: unknown) => (typeof v === "number" ? v : 0);
+  return {
+    id: r.id,
+    name: (r.fields.Name as string) ?? "",
+    email: (r.fields.Email as string) ?? "",
+    month: (r.fields.Month as string) ?? "",
+    classes: num(r.fields.Classes),
+    owed: num(r.fields["Amount Owed"]),
+    paid: num(r.fields["Amount Paid"]),
+    method: (r.fields.Method as string) ?? "",
+    twiceAWeek: r.fields["Twice a week"] === true,
+  };
+}
+
+/**
+ * Add a booking to the person's row for that month, creating it if needed.
+ *
+ * Twice a week changes the rate for the whole month, so the first time a
+ * second weekly class appears, the classes they already had come down from
+ * the monthly rate to the twice-a-week one as well — the same total the
+ * booking form showed them.
+ *
+ * Never throws: a booking that saved must not be reported as failed because
+ * its payment row didn't (the table not existing yet, say). It's logged, and
+ * Libby can add the row by hand.
+ */
+async function addToPayments(p: {
+  name: string;
+  email: string;
+  month: string;
+  classes: number;
+  perClass: number;
+  otherClasses: number;
+}): Promise<void> {
+  if (p.classes === 0) return;
+  try {
+    const safe = p.email.toLowerCase().replace(/['\\]/g, "");
+    const month = p.month.replace(/[^0-9-]/g, "");
+    const res = await fetch(
+      `${API}/Payments?maxRecords=1&filterByFormula=${encodeURIComponent(
+        `AND(LOWER({Email}) = '${safe}', {Month} = '${month}')`,
+      )}`,
+      { headers: authHeaders, cache: "no-store" },
+    );
+    if (!res.ok) throw new Error(`read ${res.status}: ${await res.text()}`);
+    const rec = ((await res.json()) as { records?: AirtableRecord[] }).records?.[0];
+    const twice = p.otherClasses > 0;
+    const charge = p.perClass * p.classes;
+    const drop = PRICE.monthly - PRICE.twiceWeekly;
+
+    let fields: Record<string, unknown>;
+    if (rec) {
+      const row = toPayment(rec);
+      // Their earlier classes were charged at the monthly rate; bring them
+      // down now that they're twice a week. Only once — after that, every
+      // class is already at the cheaper rate.
+      const reprice = twice && !row.twiceAWeek ? p.otherClasses * drop : 0;
+      fields = {
+        Classes: row.classes + p.classes,
+        "Amount Owed": row.owed + charge - reprice,
+        "Twice a week": row.twiceAWeek || twice,
+      };
+    } else {
+      // No row yet but other classes that month (booked before this table
+      // existed, or added by Libby): charge the whole month in one go.
+      fields = {
+        Name: p.name,
+        Email: p.email,
+        Month: month,
+        Classes: p.classes + p.otherClasses,
+        "Amount Owed": charge + p.otherClasses * p.perClass,
+        "Amount Paid": 0,
+        "Twice a week": twice,
+      };
+    }
+    const write = await fetch(`${API}/Payments${rec ? `/${rec.id}` : ""}`, {
+      method: rec ? "PATCH" : "POST",
+      headers: { ...authHeaders, "Content-Type": "application/json" },
+      body: JSON.stringify({ fields }),
+    });
+    if (!write.ok) throw new Error(`write ${write.status}: ${await write.text()}`);
+  } catch (err) {
+    console.error(
+      `Booking saved, but its Payments row wasn't (${p.email}, ${p.month}):`,
+      err,
+    );
+  }
+}
+
+/**
+ * Payment rows for the given months, by name. Returns null when the
+ * Payments table can't be read — most likely it hasn't been created yet —
+ * so the rest of the admin page still loads.
+ */
+export async function getPayments(months: string[]): Promise<Payment[] | null> {
+  const list = months
+    .map((m) => `{Month} = '${m.replace(/[^0-9-]/g, "")}'`)
+    .join(", ");
+  try {
+    const rows = await fetchAll(
+      "Payments",
+      { filterByFormula: `OR(${list})` },
+      READ_TTL,
+    );
+    return rows
+      .map(toPayment)
+      .sort((a, b) => a.name.localeCompare(b.name));
+  } catch (err) {
+    console.error("Could not read the Payments table:", err);
+    return null;
+  }
+}
+
+/** Record what someone has paid in total for the month, and how. */
+export async function setPayment(
+  id: string,
+  paid: number,
+  method: string,
+): Promise<void> {
+  const res = await fetch(`${API}/Payments/${id}`, {
+    method: "PATCH",
+    headers: { ...authHeaders, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      typecast: true, // creates the Method option if Libby hasn't yet
+      fields: { "Amount Paid": paid, Method: method || null },
+    }),
+  });
+  if (!res.ok) {
+    throw new Error(`setPayment failed (${res.status}): ${await res.text()}`);
   }
 }

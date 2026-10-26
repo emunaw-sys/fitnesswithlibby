@@ -48,8 +48,8 @@ export async function POST(request: Request) {
       month: typeof month === "string" ? month : undefined,
     });
     // Bust the cached schedule so the new "spots left" shows immediately,
-    // and the admin roster too.
-    refreshTables("Booking");
+    // and the admin roster and payments too.
+    refreshTables("Booking", "Payments");
     return NextResponse.json({ ok: true, dates, added, alreadyHeld, price });
   } catch (err) {
     // "That class just filled up" is the user's problem to fix, not a fault —
