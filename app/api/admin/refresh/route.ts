@@ -9,6 +9,6 @@ export async function POST() {
   if (!(await isAuthed())) {
     return NextResponse.json({ error: "Not authorized." }, { status: 401 });
   }
-  refreshTables("Sessions", "Booking", "Members");
+  refreshTables("Sessions", "Booking", "Members", "Payments");
   return NextResponse.json({ ok: true });
 }
