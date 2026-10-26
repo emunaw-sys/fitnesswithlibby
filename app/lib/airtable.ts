@@ -11,8 +11,9 @@
  *                      bookings made *for the upcoming occurrence*, so
  *                      availability resets automatically each week
  *                      without deleting any history.
- *   createBooking() -> writes a Booking row, stamps which class date it
- *                      was for, and marks it "Booked".
+ *   createBooking() -> writes a Booking row per class date (one class, or
+ *                      every class in a month), marks them "Booked" and
+ *                      works out what the booking costs.
  * ------------------------------------------------------------------ */
 
 /* ====================================================================== *
@@ -37,8 +38,13 @@ const TOKEN = process.env.AIRTABLE_TOKEN;
 const BASE = process.env.AIRTABLE_BASE_ID;
 const API = `https://api.airtable.com/v0/${BASE}`;
 
-/* How many consecutive weeks an active member may book in one go. */
-export const SERIES_WEEKS = 4;
+import {
+  monthKey,
+  monthRate,
+  nextMonthKey,
+  singleClassRate,
+  type Price,
+} from "./pricing";
 
 export type ClassSession = {
   id: string; // Airtable record id, used to link the booking
@@ -46,14 +52,18 @@ export type ClassSession = {
   time: string;
   spotsLeft: number;
   /**
-   * Spots free for each of the next SERIES_WEEKS occurrences, index 0 being
-   * the same one `spotsLeft` describes. Members booking a series need to know
-   * week 3 is full before they commit, and the counts are already in memory
-   * here, so this costs no extra Airtable calls.
+   * Every date this class runs from now to the end of next month, index 0
+   * being the one `spotsLeft` describes. The month picker groups these by
+   * month, and needs to know a week is full before anyone commits; the
+   * counts are already in memory here, so this costs no extra Airtable calls.
    */
-  weekSpots: number[];
-  /** "Tue 25 Aug" for each of those weeks, for the series picker. */
-  weekDates: string[];
+  runs: ClassRun[];
+};
+
+export type ClassRun = {
+  iso: string; // "2026-11-03"
+  label: string; // "3 Nov"
+  spots: number;
 };
 
 export type DaySchedule = {
@@ -150,6 +160,15 @@ function bookableDates(
   }
   return out;
 }
+
+/* "2026-11-30": the last day anyone can book up to — the end of next month. */
+function bookingHorizon(): string {
+  const now = new Date();
+  return toISO(new Date(now.getFullYear(), now.getMonth() + 2, 0));
+}
+
+/* Ten weeks always reaches the end of next month. */
+const HORIZON_WEEKS = 10;
 
 /* Parse the Skip Dates textarea into a set of ISO dates. */
 function parseSkipDates(raw: unknown): Set<string> {
@@ -370,28 +389,31 @@ export async function getSchedule(): Promise<DaySchedule[]> {
     if (!day || !name || rec.fields.Archived) continue;
 
     const time = (rec.fields.Time as string | undefined) ?? "";
-    const runs = bookableDates(
+    const dates = bookableDates(
       day,
       time,
       rec.fields["Starts On"] as string | undefined,
       parseSkipDates(rec.fields["Skip Dates"]),
-      SERIES_WEEKS,
+      HORIZON_WEEKS,
     );
-    if (runs.length === 0) continue; // nothing scheduled within two years
-    const occ = runs[0];
+    if (dates.length === 0) continue; // nothing scheduled within two years
+    const occ = dates[0];
     const capacity = (rec.fields.Capacity as number | undefined) ?? 0;
     const booked = counts.get(`${rec.id}|${toISO(occ)}`) ?? 0;
 
-    // Availability across the next few dates it actually runs — cancelled
-    // weeks are skipped, so a series never straddles a week with no class.
+    // Availability on every date it actually runs up to the end of next
+    // month — cancelled weeks are skipped, so a month booking never includes
+    // a week with no class. The first date is always kept, so a class whose
+    // season starts later still shows when it begins.
     // `counts` already holds every future booking, so this costs no API calls.
-    const weekSpots: number[] = [];
-    const weekDates: string[] = [];
-    for (const d of runs) {
-      const taken = counts.get(`${rec.id}|${toISO(d)}`) ?? 0;
-      weekSpots.push(Math.max(0, capacity - taken));
-      weekDates.push(formatDate(d));
-    }
+    const horizon = bookingHorizon();
+    const runs: ClassRun[] = dates
+      .filter((d, i) => i === 0 || toISO(d) <= horizon)
+      .map((d) => ({
+        iso: toISO(d),
+        label: formatDate(d),
+        spots: Math.max(0, capacity - (counts.get(`${rec.id}|${toISO(d)}`) ?? 0)),
+      }));
 
     entries.push({
       day,
@@ -401,8 +423,7 @@ export async function getSchedule(): Promise<DaySchedule[]> {
         name,
         time,
         spotsLeft: Math.max(0, capacity - booked),
-        weekSpots,
-        weekDates,
+        runs,
       },
     });
   }
@@ -445,8 +466,11 @@ export type NewBooking = {
   email: string;
   phone?: string;
   firstTime?: boolean;
-  /** Consecutive weeks to book. Honoured only for active members. */
-  weeks?: number;
+  /**
+   * "2026-11" books every class left in that month; absent books just the
+   * next one. Only this month and next can be booked.
+   */
+  month?: string;
 };
 
 /** The requested class(es) filled up — a user-fixable problem, not a fault. */
@@ -458,14 +482,20 @@ export class BookingFullError extends Error {
  * Live state for one session across the given dates, read uncached:
  * how many places are taken, and which of those dates this person already
  * holds. Cancelled bookings release their place, matching getSchedule.
+ *
+ * Also whether this person is booked into a *different* class in `month` —
+ * that makes them twice a week, and the cheaper rate. It comes from the same
+ * read, so it costs no extra API call.
  */
 async function readSessionState(
   sessionId: string,
   isoDates: string[],
   email: string,
-): Promise<{ taken: Map<string, number>; held: Set<string> }> {
+  month?: string,
+): Promise<{ taken: Map<string, number>; held: Set<string>; twiceAWeek: boolean }> {
   const taken = new Map<string, number>(isoDates.map((d) => [d, 0]));
   const held = new Set<string>();
+  let twiceAWeek = false;
   const mine = email.trim().toLowerCase();
   const rows = await fetchAll(
     "Booking",
@@ -477,25 +507,36 @@ async function readSessionState(
     const date = b.fields["Class Date"];
     const links = b.fields["Sessions"];
     if (typeof date !== "string" || !Array.isArray(links)) continue;
-    if (!links.includes(sessionId)) continue;
+    const rowEmail = b.fields["Email"];
+    const isMine =
+      mine !== "" &&
+      typeof rowEmail === "string" &&
+      rowEmail.trim().toLowerCase() === mine;
+    if (!links.includes(sessionId)) {
+      if (isMine && month && date.startsWith(month)) twiceAWeek = true;
+      continue;
+    }
     if (!taken.has(date)) continue;
     taken.set(date, (taken.get(date) ?? 0) + 1);
-    const rowEmail = b.fields["Email"];
-    if (mine && typeof rowEmail === "string" && rowEmail.trim().toLowerCase() === mine) {
-      held.add(date);
-    }
+    if (isMine) held.add(date);
   }
-  return { taken, held };
+  return { taken, held, twiceAWeek };
 }
 
 /**
  * Create a booking, linked to its session, stamped with the class date
  * it was made for, and marked "Booked" (Libby updates this to Attended /
  * No-show after class).
+ *
+ * Returns what it costs, priced over every class the booking covers —
+ * including any they already held, since those are part of the same month.
  */
-export async function createBooking(
-  booking: NewBooking,
-): Promise<{ dates: string[]; added: number; alreadyHeld: number }> {
+export async function createBooking(booking: NewBooking): Promise<{
+  dates: string[];
+  added: number;
+  alreadyHeld: number;
+  price: Price;
+}> {
   // Look up the session's day so we stamp the correct upcoming date.
   const sres = await fetch(`${API}/Sessions/${booking.sessionId}`, {
     headers: authHeaders,
@@ -520,26 +561,39 @@ export async function createBooking(
   const member = await findMemberByEmail(booking.email);
   const memberIds = member ? [member.id] : undefined;
 
-  // Booking a series is a members-only entitlement, re-checked here rather
-  // than trusted from the request — the client can send anything.
-  const wanted = Math.min(Math.max(Math.round(booking.weeks ?? 1), 1), SERIES_WEEKS);
-  const weeks = member?.active ? wanted : 1;
+  // A month booking is open to anyone — members or not — but only for this
+  // month or next. Re-checked here rather than trusted from the request; the
+  // client can send anything.
+  const thisMonth = monthKey(new Date());
+  const month =
+    booking.month === thisMonth || booking.month === nextMonthKey(thisMonth)
+      ? booking.month
+      : undefined;
 
-  // Which of those weeks actually have room. Availability is re-read
-  // uncached: the cached schedule the client saw may be up to 60s stale, and
-  // two people can pick the last place in that window.
   // The same dates the schedule offered — computed here rather than trusted,
   // and skipping any week the class isn't running.
-  const wantedDates = bookableDates(day, classTime, startsOn, skip, weeks).map(
+  const upcoming = bookableDates(day, classTime, startsOn, skip, HORIZON_WEEKS).map(
     toISO,
   );
+  const wantedDates = month
+    ? upcoming.filter((iso) => iso.startsWith(month))
+    : upcoming.slice(0, 1);
   if (wantedDates.length === 0) {
-    throw new BookingFullError("That class isn't running at the moment.");
+    throw new BookingFullError(
+      month
+        ? "That class has no more dates that month. Please pick another option."
+        : "That class isn't running at the moment.",
+    );
   }
-  const { taken, held } = await readSessionState(
+
+  // Which of those dates actually have room. Availability is re-read
+  // uncached: the cached schedule the client saw may be up to 60s stale, and
+  // two people can pick the last place in that window.
+  const { taken, held, twiceAWeek } = await readSessionState(
     booking.sessionId,
     wantedDates,
     booking.email,
+    month,
   );
 
   // Never sell someone the same place twice. A double-tapped button, an
@@ -558,10 +612,11 @@ export async function createBooking(
         dates: mine.map(formatLongDate),
         added: 0,
         alreadyHeld: mine.length,
+        price: priceFor(mine.length, month, twiceAWeek, member?.active === true),
       };
     }
     throw new BookingFullError(
-      weeks > 1
+      wantedDates.length > 1
         ? "Those classes filled up while you were booking. Please pick another time."
         : "That class just filled up. Please pick another time.",
     );
@@ -609,6 +664,24 @@ export async function createBooking(
     dates: confirmed.map(formatLongDate),
     added: openDates.length,
     alreadyHeld: confirmed.length - openDates.length,
+    price: priceFor(confirmed.length, month, twiceAWeek, member?.active === true),
+  };
+}
+
+/* A month is priced per class at the monthly rate; a single class is a
+ * drop-in, or the member rate for an active member. */
+function priceFor(
+  classes: number,
+  month: string | undefined,
+  twiceAWeek: boolean,
+  member: boolean,
+): Price {
+  const perClass = month ? monthRate(twiceAWeek) : singleClassRate(member);
+  return {
+    perClass,
+    classes,
+    total: perClass * classes,
+    twiceAWeek: Boolean(month) && twiceAWeek,
   };
 }
 

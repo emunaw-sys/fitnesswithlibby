@@ -59,10 +59,10 @@ export default async function BookPage() {
             </p>
           </div>
           <div className="book-path path-member">
-            <span className="book-path-label">Already a member?</span>
+            <span className="book-path-label">Coming regularly?</span>
             <p>
-              Book <strong>this week&rsquo;s class</strong> straight from the
-              live schedule.
+              Book <strong>the whole month</strong> in one go — every class,
+              with the price worked out for you.
             </p>
           </div>
         </div>

@@ -6,7 +6,8 @@ import { isActiveMember } from "@/app/lib/airtable";
  * Body: { email }
  * -> { member: boolean }
  *
- * Backs the "book the next 4 weeks" option in the booking form.
+ * Backs the price shown in the booking form: a member pays the member rate
+ * for a single class rather than the drop-in price.
  *
  * Deliberately a POST with the address in the body, never a GET with it in
  * the query string, so the email never lands in a URL, a log line or a
@@ -34,7 +35,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ member: await isActiveMember(email.trim()) });
   } catch (err) {
     // Never block a booking because the membership lookup had a bad day —
-    // the caller just doesn't see the series option.
+    // the caller just sees the drop-in price.
     console.error("Membership check failed:", err);
     return NextResponse.json({ member: false });
   }

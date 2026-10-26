@@ -1,7 +1,16 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { SERIES_WEEKS, type DaySchedule } from "@/app/lib/airtable";
+import type { ClassRun, DaySchedule } from "@/app/lib/airtable";
+import {
+  PRICE,
+  monthKey,
+  monthName,
+  nextMonthKey,
+  nextMonthOpen,
+  singleClassRate,
+  type Price,
+} from "@/app/lib/pricing";
 
 /* ------------------------------------------------------------------ *
  * BOOKING FLOW
@@ -10,9 +19,52 @@ import { SERIES_WEEKS, type DaySchedule } from "@/app/lib/airtable";
  * which reads it from Airtable. `spotsLeft` is Airtable's computed
  * "Spots Left" (capacity − bookings). On submit we POST to /api/book,
  * which writes the booking row back into Airtable.
+ *
+ * Anyone can book a single class or the whole month. Libby works month
+ * by month, so a month booking covers the classes left in that calendar
+ * month — never a rolling run of weeks that spills into the next one.
  * ------------------------------------------------------------------ */
 
 const LOW_SPOTS = 3; // at or below this we nudge "only N places left"
+
+/* "single" for one class, or a month key ("2026-11") for the month. */
+type PlanKey = string;
+
+type PlanOption = {
+  key: PlanKey;
+  label: string;
+  /** Every date the plan covers, full ones included so we can say so. */
+  dates: ClassRun[];
+};
+
+/**
+ * What this class can be booked as. This month is offered while it has at
+ * least two classes left (one class is just a single class). Next month opens
+ * in the last week of this one, or straight away when this class has nothing
+ * left this month — a season that starts next month, say.
+ */
+function planOptions(runs: ClassRun[]): PlanOption[] {
+  if (runs.length === 0) return [];
+  const opts: PlanOption[] = [
+    { key: "single", label: "Just this class", dates: runs.slice(0, 1) },
+  ];
+  const thisMonth = monthKey(new Date());
+  const nextMonth = nextMonthKey(thisMonth);
+  const open = (dates: ClassRun[]) => dates.filter((r) => r.spots > 0).length;
+
+  const nowDates = runs.filter((r) => r.iso.startsWith(thisMonth));
+  if (open(nowDates) >= 2) {
+    opts.push({ key: thisMonth, label: `Rest of ${monthName(thisMonth)}`, dates: nowDates });
+  }
+  const nextDates = runs.filter((r) => r.iso.startsWith(nextMonth));
+  if (open(nextDates) > 0 && (nextMonthOpen() || open(nowDates) === 0)) {
+    opts.push({ key: nextMonth, label: `All of ${monthName(nextMonth)}`, dates: nextDates });
+  }
+  return opts;
+}
+
+/* ₪160 */
+const shekels = (n: number) => `₪${n}`;
 
 type Details = {
   name: string;
@@ -36,7 +88,7 @@ export default function BookingFlow({ schedule }: { schedule: DaySchedule[] }) {
   // derived rather than mirrored, so a changed address can't leave a stale
   // "you're a member" behind.
   const [memberEmail, setMemberEmail] = useState<string | null>(null);
-  const [weeks, setWeeks] = useState(1);
+  const [plan, setPlan] = useState<PlanKey>("single");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // Spam filter: the hidden honeypot, and when the form loaded (see app/lib/spam.ts).
@@ -53,12 +105,12 @@ export default function BookingFlow({ schedule }: { schedule: DaySchedule[] }) {
     alreadyHeld: number;
     name: string;
     email: string;
-    firstTime: boolean;
+    price: Price | null;
   } | null>(null);
 
-  /* Members can book a run of weeks in one go. We ask the server once the
-   * email looks complete, debounced so typing doesn't spend the free plan's
-   * API budget. Non-members simply never see the option. */
+  /* Members pay the member rate for a single class rather than the drop-in
+   * price. We ask the server once the email looks complete, debounced so
+   * typing doesn't spend the free plan's API budget. */
   const email = details.email.trim();
   const isMember = memberEmail !== null && memberEmail === email;
 
@@ -88,17 +140,24 @@ export default function BookingFlow({ schedule }: { schedule: DaySchedule[] }) {
   const selectedClass =
     selectedDay && classIdx !== null ? selectedDay.classes[classIdx] : null;
 
-  /* How far ahead this class can be booked: stop at the first full week, so
-   * we never offer a series that can't be honoured end to end. */
-  const weeksAvailable = useMemo(() => {
-    if (!selectedClass?.weekSpots) return 1;
-    let n = 0;
-    for (const spots of selectedClass.weekSpots) {
-      if (spots <= 0) break;
-      n++;
-    }
-    return Math.max(1, n);
-  }, [selectedClass]);
+  const options = useMemo(
+    () => planOptions(selectedClass?.runs ?? []),
+    [selectedClass],
+  );
+  // A plan that's no longer on offer (a different class was picked) falls
+  // back to a single class rather than booking something unseen.
+  const chosen = options.find((o) => o.key === plan) ?? options[0] ?? null;
+  const isMonth = chosen !== null && chosen.key !== "single";
+
+  /* The summary before booking. Full weeks aren't booked or charged. The
+   * twice-a-week rate depends on their other bookings, which only the server
+   * sees, so the confirmation has the final figure. */
+  const quote = useMemo(() => {
+    if (!chosen) return null;
+    const open = chosen.dates.filter((r) => r.spots > 0);
+    const perClass = isMonth ? PRICE.monthly : singleClassRate(isMember);
+    return { open, full: chosen.dates.length - open.length, perClass, total: perClass * open.length };
+  }, [chosen, isMonth, isMember]);
 
   const detailsValid =
     selectedClass !== null &&
@@ -112,13 +171,15 @@ export default function BookingFlow({ schedule }: { schedule: DaySchedule[] }) {
     return "";
   }, [dayIdx, classIdx, detailsValid]);
 
-  /* What we'll actually book: never more weeks than the class has room for,
-   * and always 1 for anyone who isn't an active member. */
-  const effectiveWeeks = isMember ? Math.min(weeks, weeksAvailable) : 1;
-
   function pickDay(i: number) {
     setDayIdx(i);
     setClassIdx(null);
+    setPlan("single");
+  }
+
+  function pickClass(i: number) {
+    setClassIdx(i);
+    setPlan("single");
   }
 
   function changeDay() {
@@ -140,7 +201,7 @@ export default function BookingFlow({ schedule }: { schedule: DaySchedule[] }) {
           email: details.email.trim(),
           phone: details.phone.trim(),
           firstTime: details.firstTime,
-          weeks: effectiveWeeks,
+          month: isMonth ? chosen.key : undefined,
           website: honeypot.current?.value ?? "",
           elapsedMs: Date.now() - loadedAt.current,
         }),
@@ -160,7 +221,7 @@ export default function BookingFlow({ schedule }: { schedule: DaySchedule[] }) {
         alreadyHeld: Number(data?.alreadyHeld ?? 0),
         name: details.name.trim(),
         email: details.email.trim(),
-        firstTime: details.firstTime,
+        price: data?.price ?? null,
       });
     } catch (err) {
       setError(
@@ -177,7 +238,7 @@ export default function BookingFlow({ schedule }: { schedule: DaySchedule[] }) {
     setDayIdx(null);
     setClassIdx(null);
     setDetails(EMPTY_DETAILS);
-    setWeeks(1);
+    setPlan("single");
     setConfirmed(null);
     setError(null);
   }
@@ -241,16 +302,22 @@ export default function BookingFlow({ schedule }: { schedule: DaySchedule[] }) {
             <dt>Name</dt>
             <dd>{confirmed.name}</dd>
           </dl>
+          {confirmed.price && confirmed.price.classes > 0 && (
+            <div className="bf-total">
+              <span className="bf-total-lab">To pay</span>
+              <span className="bf-total-sum">{shekels(confirmed.price.total)}</span>
+              <span className="bf-total-calc">
+                {confirmed.price.classes}{" "}
+                {confirmed.price.classes === 1 ? "class" : "classes"} ×{" "}
+                {shekels(confirmed.price.perClass)}
+                {confirmed.price.twiceAWeek && " — your twice-a-week rate"}
+              </span>
+            </div>
+          )}
+
           <div className="bf-next">
             <strong>How to pay</strong>
             <br />
-            {confirmed.firstTime && (
-              <>
-                Your first class is a one-off drop-in — <strong>₪45</strong>. No
-                membership required.
-                <br />
-              </>
-            )}
             Payment can be done in one of three ways:
             <ol className="bf-pay">
               <li>Pay on site, in cash, to Libby.</li>
@@ -340,7 +407,7 @@ export default function BookingFlow({ schedule }: { schedule: DaySchedule[] }) {
                   type="button"
                   className={`bf-pick${selected ? " sel" : ""}${full ? " full" : ""}`}
                   disabled={full}
-                  onClick={() => setClassIdx(i)}
+                  onClick={() => pickClass(i)}
                 >
                   <span className="bf-pick-d">{c.name}</span>
                   <span className="bf-pick-t">{c.time}</span>
@@ -356,10 +423,54 @@ export default function BookingFlow({ schedule }: { schedule: DaySchedule[] }) {
         )}
       </section>
 
-      {/* Step 3 — details */}
+      {/* Step 3 — one class or the month */}
       <section className={`bf-step${selectedClass ? "" : " off"}`}>
         <div className="bf-lab">
           <span className="bf-n">3</span>
+          <h2>Just this class, or the month?</h2>
+        </div>
+        {selectedClass && chosen ? (
+          <div className="bf-plan">
+            <div className="bf-grid">
+              {options.map((o) => {
+                const open = o.dates.filter((r) => r.spots > 0).length;
+                return (
+                  <button
+                    key={o.key}
+                    type="button"
+                    className={`bf-pick${chosen.key === o.key ? " sel" : ""}`}
+                    onClick={() => setPlan(o.key)}
+                  >
+                    <span className="bf-pick-d">{o.label}</span>
+                    <span className="bf-pick-t">
+                      {o.key === "single"
+                        ? o.dates[0].label
+                        : `${open} ${open === 1 ? "class" : "classes"}`}
+                    </span>
+                    <span className="bf-pick-cap">
+                      {o.key === "single"
+                        ? `${shekels(singleClassRate(isMember))} ${isMember ? "member rate" : "drop-in"}`
+                        : `${shekels(PRICE.monthly)} a class`}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+            {options.length === 1 && (
+              <p className="bf-series-note">
+                Month bookings for this class open in the last week of the month.
+              </p>
+            )}
+          </div>
+        ) : (
+          <p className="bf-empty">Choose a class above first.</p>
+        )}
+      </section>
+
+      {/* Step 4 — details */}
+      <section className={`bf-step${selectedClass ? "" : " off"}`}>
+        <div className="bf-lab">
+          <span className="bf-n">4</span>
           <h2>Your details</h2>
         </div>
         <div className="bf-fields">
@@ -422,43 +533,10 @@ export default function BookingFlow({ schedule }: { schedule: DaySchedule[] }) {
               autoComplete="off"
             />
           </div>
-          {isMember && weeksAvailable > 1 && (
-            <div className="bf-series">
-              <span className="bf-series-lab">
-                You&rsquo;re a member — book your place for the next few weeks?
-              </span>
-              <div className="bf-series-opts" role="group">
-                {Array.from({ length: weeksAvailable }, (_, i) => i + 1).map(
-                  (n) => (
-                    <button
-                      key={n}
-                      type="button"
-                      className={`bf-week${effectiveWeeks === n ? " sel" : ""}`}
-                      onClick={() => setWeeks(n)}
-                    >
-                      {n === 1 ? "Just this one" : `${n} weeks`}
-                    </button>
-                  ),
-                )}
-              </div>
-              {effectiveWeeks > 1 && selectedClass && (
-                <p className="bf-series-dates">
-                  {selectedClass.weekDates.slice(0, effectiveWeeks).join(" · ")}
-                </p>
-              )}
-              {weeksAvailable < SERIES_WEEKS && (
-                <p className="bf-series-note">
-                  Booking further ahead isn&rsquo;t possible for this class yet —
-                  a later week is full.
-                </p>
-              )}
-            </div>
-          )}
           {details.firstTime && (
             <div className="bf-note">
-              <strong>Lovely — Libby will look out for you.</strong> Your first
-              class is a one-off drop-in — <strong>₪45</strong>, no membership
-              needed. Come in whatever you&rsquo;re comfortable moving in, bring water,
+              <strong>Lovely — Libby will look out for you.</strong> Come in
+              whatever you&rsquo;re comfortable moving in, bring water,
               and arrive five minutes early so she can say hello properly. No
               experience needed, and nobody is watching anyone else.
             </div>
@@ -466,13 +544,53 @@ export default function BookingFlow({ schedule }: { schedule: DaySchedule[] }) {
         </div>
       </section>
 
+      {selectedClass && chosen && quote && (
+        <div className="bf-quote" aria-live="polite">
+          <div className="bf-quote-head">
+            <span>
+              {isMonth ? chosen.label : "Your class"} · {selectedClass.name},{" "}
+              {selectedClass.time}
+            </span>
+            <strong>{shekels(quote.total)}</strong>
+          </div>
+          <p className="bf-quote-calc">
+            {quote.open.length} {quote.open.length === 1 ? "class" : "classes"} ×{" "}
+            {shekels(quote.perClass)}
+          </p>
+          <ul className="bf-quote-dates">
+            {chosen.dates.map((r) => (
+              <li key={r.iso} className={r.spots > 0 ? "" : "full"}>
+                {r.label}
+                {r.spots > 0 ? "" : " — full"}
+              </li>
+            ))}
+          </ul>
+          {quote.full > 0 && (
+            <p className="bf-series-note">
+              Full weeks aren&rsquo;t booked or charged.
+            </p>
+          )}
+          {isMonth && (
+            <p className="bf-series-note">
+              Coming twice a week? Booking a second class for {monthName(chosen.key)}{" "}
+              drops it to {shekels(PRICE.twiceWeekly)} a class — worked out when you
+              book.
+            </p>
+          )}
+        </div>
+      )}
+
       <button
         type="button"
         className="bf-go"
         disabled={!detailsValid || submitting}
         onClick={submit}
       >
-        {submitting ? "Booking…" : "Book my place"}
+        {submitting
+          ? "Booking…"
+          : isMonth && quote
+            ? `Book ${quote.open.length} classes · ${shekels(quote.total)}`
+            : "Book my place"}
       </button>
       {error && <p className="bf-hint bf-error">{error}</p>}
       {hint && !error && <p className="bf-hint">{hint}</p>}
