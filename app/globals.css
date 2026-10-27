@@ -1844,34 +1844,52 @@ html, body { max-width: 100%; }
 }
 .bf-error{ color:#b3261e; font-weight:400; }
 
-/* members-only: book a run of consecutive weeks */
-.bf-series{
-  grid-column:1/-1;
+/* the price summary above the book button, and the total on the confirmation */
+.bf-quote{
+  margin-top:clamp(22px,3vh,28px);
   border:1.5px solid rgba(222,33,96,.28); border-radius:14px;
   background:rgba(233,100,127,.06);
   padding:16px 18px;
 }
-.bf-series-lab{
-  display:block; font-size:13.5px; font-weight:500; color:var(--plum);
-  margin-bottom:12px;
+.bf-quote-head{
+  display:flex; justify-content:space-between; align-items:baseline; gap:12px;
+  font-size:14px; font-weight:500; color:var(--plum);
 }
-.bf-series-opts{ display:flex; flex-wrap:wrap; gap:8px; }
-.bf-week{
-  font-family:var(--font-outfit),sans-serif;
-  font-size:13px; font-weight:400; letter-spacing:.02em;
-  padding:9px 15px; border-radius:999px; cursor:pointer;
-  background:#fff; color:var(--plum);
-  border:1.5px solid rgba(51,18,48,.16);
-  transition:background .18s, border-color .18s, color .18s;
+.bf-quote-head strong{
+  font-family:var(--font-bebas),sans-serif; font-weight:400;
+  font-size:28px; letter-spacing:.04em; color:var(--magenta); line-height:1;
 }
-.bf-week:hover{ border-color:var(--magenta); }
-.bf-week.sel{ background:var(--magenta); border-color:var(--magenta); color:#fff; }
-.bf-series-dates{
-  margin-top:11px; font-size:12.5px; font-weight:300; line-height:1.6;
-  color:rgba(51,18,48,.7);
+.bf-quote-calc{ margin-top:4px; font-size:12.5px; font-weight:300; color:rgba(51,18,48,.6); }
+.bf-quote-dates{
+  list-style:none; display:flex; flex-wrap:wrap; gap:6px; margin-top:12px; padding:0;
 }
+.bf-quote-dates li{
+  font-size:12.5px; font-weight:400; color:var(--plum);
+  background:#fff; border:1px solid rgba(51,18,48,.12);
+  border-radius:999px; padding:4px 11px;
+}
+.bf-quote-dates li.full{ text-decoration:line-through; color:rgba(51,18,48,.4); }
+.bf-quote-month{
+  margin-top:12px; padding:11px 13px; border-radius:10px;
+  background:#fff; font-size:13px; font-weight:300; line-height:1.6; color:var(--plum);
+}
+.bf-quote-month strong{ font-weight:600; }
+.bf-total-calc{ max-width:34em; text-align:center; }
+.bf-total{
+  display:flex; flex-direction:column; align-items:center; gap:2px;
+  padding:16px; margin:18px 0 14px; border-radius:12px;
+  background:rgba(233,100,127,.08);
+}
+.bf-total-lab{ font-size:11px; letter-spacing:.14em; text-transform:uppercase; color:rgba(51,18,48,.55); }
+.bf-total-sum{
+  font-family:var(--font-bebas),sans-serif; font-size:38px; letter-spacing:.04em;
+  color:var(--magenta); line-height:1.1;
+}
+.bf-total-calc{ font-size:13px; font-weight:300; color:rgba(51,18,48,.7); }
+
+/* notes under the month options and the summary */
 .bf-series-note{
-  margin-top:9px; font-size:12px; font-weight:300;
+  margin-top:9px; line-height:1.55; font-size:12px; font-weight:300;
   color:rgba(51,18,48,.5);
 }
 .bf-date-row{ display:block; }

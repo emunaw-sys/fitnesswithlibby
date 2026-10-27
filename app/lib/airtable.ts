@@ -11,8 +11,10 @@
  *                      bookings made *for the upcoming occurrence*, so
  *                      availability resets automatically each week
  *                      without deleting any history.
- *   createBooking() -> writes a Booking row, stamps which class date it
- *                      was for, and marks it "Booked".
+ *   createBooking() -> writes a Booking row per class date (one class, or
+ *                      every class in a month), marks them "Booked",
+ *                      works out what the booking costs and adds it to
+ *                      the person's row in Payments for that month.
  * ------------------------------------------------------------------ */
 
 /* ====================================================================== *
@@ -37,8 +39,14 @@ const TOKEN = process.env.AIRTABLE_TOKEN;
 const BASE = process.env.AIRTABLE_BASE_ID;
 const API = `https://api.airtable.com/v0/${BASE}`;
 
-/* How many consecutive weeks an active member may book in one go. */
-export const SERIES_WEEKS = 4;
+import {
+  PRICE,
+  monthKey,
+  monthPrice,
+  nextMonthKey,
+  singleClassRate,
+  type Price,
+} from "./pricing";
 
 export type ClassSession = {
   id: string; // Airtable record id, used to link the booking
@@ -46,14 +54,18 @@ export type ClassSession = {
   time: string;
   spotsLeft: number;
   /**
-   * Spots free for each of the next SERIES_WEEKS occurrences, index 0 being
-   * the same one `spotsLeft` describes. Members booking a series need to know
-   * week 3 is full before they commit, and the counts are already in memory
-   * here, so this costs no extra Airtable calls.
+   * Every date this class runs from now to the end of next month, index 0
+   * being the one `spotsLeft` describes. The month picker groups these by
+   * month, and needs to know a week is full before anyone commits; the
+   * counts are already in memory here, so this costs no extra Airtable calls.
    */
-  weekSpots: number[];
-  /** "Tue 25 Aug" for each of those weeks, for the series picker. */
-  weekDates: string[];
+  runs: ClassRun[];
+};
+
+export type ClassRun = {
+  iso: string; // "2026-11-03"
+  label: string; // "3 Nov"
+  spots: number;
 };
 
 export type DaySchedule = {
@@ -151,6 +163,15 @@ function bookableDates(
   return out;
 }
 
+/* "2026-11-30": the last day anyone can book up to — the end of next month. */
+function bookingHorizon(): string {
+  const now = new Date();
+  return toISO(new Date(now.getFullYear(), now.getMonth() + 2, 0));
+}
+
+/* Ten weeks always reaches the end of next month. */
+const HORIZON_WEEKS = 10;
+
 /* Parse the Skip Dates textarea into a set of ISO dates. */
 function parseSkipDates(raw: unknown): Set<string> {
   if (typeof raw !== "string") return new Set();
@@ -239,7 +260,7 @@ const authHeaders = { Authorization: `Bearer ${TOKEN}` };
  * findMemberByEmail. */
 const READ_TTL = 60 * 60 * 24; // 24 hours, in seconds
 
-export type Table = "Sessions" | "Booking" | "Members";
+export type Table = "Sessions" | "Booking" | "Members" | "Payments";
 export const tableTag = (table: Table) => `airtable:${table}`;
 
 /* Read every record from a table (following pagination).
@@ -313,12 +334,52 @@ async function findMemberIdByEmail(email: string): Promise<string | undefined> {
 }
 
 /**
- * Is this email an active member? Backs the booking form's series option.
+ * Is this email an active member? Backs the booking form's drop-in price.
  * Deliberately returns a bare boolean and never a name — the endpoint is
  * public, so it must not become a way to look people up.
  */
 export async function isActiveMember(email: string): Promise<boolean> {
   return (await findMemberByEmail(email))?.active === true;
+}
+
+/* Every booking from today on — the query getSchedule makes, so the two share
+ * one cache entry, and every booking write expires it. */
+function readUpcomingBookings(): Promise<AirtableRecord[]> {
+  return fetchAll(
+    "Booking",
+    { filterByFormula: "IS_AFTER({Class Date}, DATEADD(TODAY(), -1, 'days'))" },
+    READ_TTL,
+  );
+}
+
+export type HeldMonth = { sessionId: string; month: string; classes: number };
+
+/**
+ * Which classes this email is already booked into, per month, from today on.
+ * Lets the booking form price a second weekly class at the twice-a-week rate
+ * before they book, rather than only on the confirmation. Class ids, months
+ * and counts only — never dates or names.
+ */
+export async function getHeldMonths(email: string): Promise<HeldMonth[]> {
+  const mine = email.trim().toLowerCase();
+  if (!mine) return [];
+  const counts = new Map<string, number>();
+  for (const b of await readUpcomingBookings()) {
+    if (b.fields["Attendance"] === "Cancelled") continue;
+    const rowEmail = b.fields["Email"];
+    const date = b.fields["Class Date"];
+    const links = b.fields["Sessions"];
+    if (typeof rowEmail !== "string" || rowEmail.trim().toLowerCase() !== mine) continue;
+    if (typeof date !== "string" || !Array.isArray(links)) continue;
+    for (const sid of links) {
+      const key = `${sid}|${monthKey(date)}`;
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    }
+  }
+  return [...counts].map(([key, classes]) => {
+    const [sessionId, month] = key.split("|");
+    return { sessionId, month, classes };
+  });
 }
 
 /**
@@ -332,11 +393,7 @@ export async function getSchedule(): Promise<DaySchedule[]> {
     fetchAll("Sessions", {}, READ_TTL),
     // Bookings drive "spots left"; every booking expires this at once (via
     // refreshTables), so the count is current without re-reading per visit.
-    fetchAll(
-      "Booking",
-      { filterByFormula: "IS_AFTER({Class Date}, DATEADD(TODAY(), -1, 'days'))" },
-      READ_TTL,
-    ),
+    readUpcomingBookings(),
   ]);
 
   // Count current bookings per (session, class date). Cancelled bookings
@@ -370,28 +427,31 @@ export async function getSchedule(): Promise<DaySchedule[]> {
     if (!day || !name || rec.fields.Archived) continue;
 
     const time = (rec.fields.Time as string | undefined) ?? "";
-    const runs = bookableDates(
+    const dates = bookableDates(
       day,
       time,
       rec.fields["Starts On"] as string | undefined,
       parseSkipDates(rec.fields["Skip Dates"]),
-      SERIES_WEEKS,
+      HORIZON_WEEKS,
     );
-    if (runs.length === 0) continue; // nothing scheduled within two years
-    const occ = runs[0];
+    if (dates.length === 0) continue; // nothing scheduled within two years
+    const occ = dates[0];
     const capacity = (rec.fields.Capacity as number | undefined) ?? 0;
     const booked = counts.get(`${rec.id}|${toISO(occ)}`) ?? 0;
 
-    // Availability across the next few dates it actually runs — cancelled
-    // weeks are skipped, so a series never straddles a week with no class.
+    // Availability on every date it actually runs up to the end of next
+    // month — cancelled weeks are skipped, so a month booking never includes
+    // a week with no class. The first date is always kept, so a class whose
+    // season starts later still shows when it begins.
     // `counts` already holds every future booking, so this costs no API calls.
-    const weekSpots: number[] = [];
-    const weekDates: string[] = [];
-    for (const d of runs) {
-      const taken = counts.get(`${rec.id}|${toISO(d)}`) ?? 0;
-      weekSpots.push(Math.max(0, capacity - taken));
-      weekDates.push(formatDate(d));
-    }
+    const horizon = bookingHorizon();
+    const runs: ClassRun[] = dates
+      .filter((d, i) => i === 0 || toISO(d) <= horizon)
+      .map((d) => ({
+        iso: toISO(d),
+        label: formatDate(d),
+        spots: Math.max(0, capacity - (counts.get(`${rec.id}|${toISO(d)}`) ?? 0)),
+      }));
 
     entries.push({
       day,
@@ -401,8 +461,7 @@ export async function getSchedule(): Promise<DaySchedule[]> {
         name,
         time,
         spotsLeft: Math.max(0, capacity - booked),
-        weekSpots,
-        weekDates,
+        runs,
       },
     });
   }
@@ -445,8 +504,11 @@ export type NewBooking = {
   email: string;
   phone?: string;
   firstTime?: boolean;
-  /** Consecutive weeks to book. Honoured only for active members. */
-  weeks?: number;
+  /**
+   * "2026-11" books every class left in that month; absent books just the
+   * next one. Only this month and next can be booked.
+   */
+  month?: string;
 };
 
 /** The requested class(es) filled up — a user-fixable problem, not a fault. */
@@ -458,14 +520,20 @@ export class BookingFullError extends Error {
  * Live state for one session across the given dates, read uncached:
  * how many places are taken, and which of those dates this person already
  * holds. Cancelled bookings release their place, matching getSchedule.
+ *
+ * Also how many classes this person holds in *other* classes in `month` —
+ * any at all makes them twice a week, and the cheaper rate. It comes from the
+ * same read, so it costs no extra API call.
  */
 async function readSessionState(
   sessionId: string,
   isoDates: string[],
   email: string,
-): Promise<{ taken: Map<string, number>; held: Set<string> }> {
+  month?: string,
+): Promise<{ taken: Map<string, number>; held: Set<string>; otherClasses: number }> {
   const taken = new Map<string, number>(isoDates.map((d) => [d, 0]));
   const held = new Set<string>();
+  let otherClasses = 0;
   const mine = email.trim().toLowerCase();
   const rows = await fetchAll(
     "Booking",
@@ -477,25 +545,36 @@ async function readSessionState(
     const date = b.fields["Class Date"];
     const links = b.fields["Sessions"];
     if (typeof date !== "string" || !Array.isArray(links)) continue;
-    if (!links.includes(sessionId)) continue;
+    const rowEmail = b.fields["Email"];
+    const isMine =
+      mine !== "" &&
+      typeof rowEmail === "string" &&
+      rowEmail.trim().toLowerCase() === mine;
+    if (!links.includes(sessionId)) {
+      if (isMine && month && date.startsWith(month)) otherClasses++;
+      continue;
+    }
     if (!taken.has(date)) continue;
     taken.set(date, (taken.get(date) ?? 0) + 1);
-    const rowEmail = b.fields["Email"];
-    if (mine && typeof rowEmail === "string" && rowEmail.trim().toLowerCase() === mine) {
-      held.add(date);
-    }
+    if (isMine) held.add(date);
   }
-  return { taken, held };
+  return { taken, held, otherClasses };
 }
 
 /**
  * Create a booking, linked to its session, stamped with the class date
  * it was made for, and marked "Booked" (Libby updates this to Attended /
  * No-show after class).
+ *
+ * Returns what it costs, priced over every class the booking covers —
+ * including any they already held, since those are part of the same month.
  */
-export async function createBooking(
-  booking: NewBooking,
-): Promise<{ dates: string[]; added: number; alreadyHeld: number }> {
+export async function createBooking(booking: NewBooking): Promise<{
+  dates: string[];
+  added: number;
+  alreadyHeld: number;
+  price: Price;
+}> {
   // Look up the session's day so we stamp the correct upcoming date.
   const sres = await fetch(`${API}/Sessions/${booking.sessionId}`, {
     headers: authHeaders,
@@ -520,26 +599,39 @@ export async function createBooking(
   const member = await findMemberByEmail(booking.email);
   const memberIds = member ? [member.id] : undefined;
 
-  // Booking a series is a members-only entitlement, re-checked here rather
-  // than trusted from the request — the client can send anything.
-  const wanted = Math.min(Math.max(Math.round(booking.weeks ?? 1), 1), SERIES_WEEKS);
-  const weeks = member?.active ? wanted : 1;
+  // A month booking is open to anyone — members or not — but only for this
+  // month or next. Re-checked here rather than trusted from the request; the
+  // client can send anything.
+  const thisMonth = monthKey(new Date());
+  const month =
+    booking.month === thisMonth || booking.month === nextMonthKey(thisMonth)
+      ? booking.month
+      : undefined;
 
-  // Which of those weeks actually have room. Availability is re-read
-  // uncached: the cached schedule the client saw may be up to 60s stale, and
-  // two people can pick the last place in that window.
   // The same dates the schedule offered — computed here rather than trusted,
   // and skipping any week the class isn't running.
-  const wantedDates = bookableDates(day, classTime, startsOn, skip, weeks).map(
+  const upcoming = bookableDates(day, classTime, startsOn, skip, HORIZON_WEEKS).map(
     toISO,
   );
+  const wantedDates = month
+    ? upcoming.filter((iso) => iso.startsWith(month))
+    : upcoming.slice(0, 1);
   if (wantedDates.length === 0) {
-    throw new BookingFullError("That class isn't running at the moment.");
+    throw new BookingFullError(
+      month
+        ? "That class has no more dates that month. Please pick another option."
+        : "That class isn't running at the moment.",
+    );
   }
-  const { taken, held } = await readSessionState(
+
+  // Which of those dates actually have room. Availability is re-read
+  // uncached: the cached schedule the client saw may be up to 60s stale, and
+  // two people can pick the last place in that window.
+  const { taken, held, otherClasses } = await readSessionState(
     booking.sessionId,
     wantedDates,
     booking.email,
+    month,
   );
 
   // Never sell someone the same place twice. A double-tapped button, an
@@ -558,10 +650,11 @@ export async function createBooking(
         dates: mine.map(formatLongDate),
         added: 0,
         alreadyHeld: mine.length,
+        price: priceFor(mine.length, month, otherClasses, member?.active === true),
       };
     }
     throw new BookingFullError(
-      weeks > 1
+      wantedDates.length > 1
         ? "Those classes filled up while you were booking. Please pick another time."
         : "That class just filled up. Please pick another time.",
     );
@@ -605,11 +698,40 @@ export async function createBooking(
       `Airtable createBooking failed (${res.status}): ${await res.text()}`,
     );
   }
+
+  // Charge only for the places just taken — ones they already held were
+  // charged when they first booked them.
+  const price = priceFor(confirmed.length, month, otherClasses, member?.active === true);
+  await addToPayments({
+    name: booking.name,
+    email: booking.email,
+    month: month ?? monthKey(openDates[0]),
+    classes: openDates.length,
+    perClass: price.perClass,
+    otherClasses: month ? otherClasses : 0,
+  });
+
   return {
     dates: confirmed.map(formatLongDate),
     added: openDates.length,
     alreadyHeld: confirmed.length - openDates.length,
+    price,
   };
+}
+
+/* A month is priced per class at the monthly rate; a single class is a
+ * drop-in, or the member rate for an active member. */
+function priceFor(
+  classes: number,
+  month: string | undefined,
+  otherClasses: number,
+  member: boolean,
+): Price {
+  if (!month) {
+    const perClass = singleClassRate(member);
+    return { perClass, classes, total: perClass * classes, twiceAWeek: false };
+  }
+  return monthPrice(classes, otherClasses);
 }
 
 /* ================================================================== *
@@ -1174,5 +1296,227 @@ export async function createEnquiry(e: Enquiry): Promise<void> {
   });
   if (!res.ok) {
     throw new Error(`createEnquiry failed (${res.status}): ${await res.text()}`);
+  }
+}
+
+/* ================================================================== *
+ *  PAYMENTS — what each person owes for each month, and what's paid
+ * ================================================================== *
+ * One row per person (by email) per month. Website bookings add to it as
+ * they're made; Libby records payments from the admin page. She can also
+ * edit any row in Airtable directly — a cancelled class, a credit rolled
+ * over — and the site builds on her figure rather than overwriting it.
+ *
+ * The table is optional: until it exists in the base, bookings still save
+ * and the admin page says how to set it up.
+ * ================================================================== */
+
+export const PAYMENT_METHODS = ["Bit", "Bank transfer", "Cash"] as const;
+
+/* The fields the site reads and writes, and the Airtable types that work. */
+const PAYMENT_FIELDS: { name: string; types: string[]; want: string }[] = [
+  { name: "Name", types: ["singleLineText", "multilineText"], want: "single line text" },
+  { name: "Email", types: ["email", "singleLineText"], want: "email" },
+  { name: "Month", types: ["singleLineText", "singleSelect"], want: "single line text" },
+  { name: "Classes", types: ["number"], want: "number" },
+  { name: "Amount Owed", types: ["number", "currency"], want: "number" },
+  { name: "Amount Paid", types: ["number", "currency"], want: "number" },
+  { name: "Method", types: ["singleSelect", "singleLineText"], want: "single select" },
+  { name: "Twice a week", types: ["checkbox"], want: "checkbox" },
+];
+
+/**
+ * Compare the base's Payments table with what the site expects, using
+ * Airtable's schema API (the token has schema.bases:read). Returns plain
+ * sentences for the admin page — an empty list means it's set up right.
+ */
+export async function checkPaymentsSetup(): Promise<string[]> {
+  const res = await fetch(`https://api.airtable.com/v0/meta/bases/${BASE}/tables`, {
+    headers: authHeaders,
+    cache: "no-store",
+  });
+  if (!res.ok) {
+    return [
+      `Couldn't read the base's layout (Airtable said ${res.status}). The access token may be missing the schema.bases:read permission.`,
+    ];
+  }
+  const { tables } = (await res.json()) as {
+    tables: { name: string; fields: { name: string; type: string }[] }[];
+  };
+  const table = tables.find((t) => t.name === "Payments");
+  if (!table) {
+    const close = tables.find((t) => t.name.trim().toLowerCase().startsWith("payment"));
+    return [
+      close
+        ? `The table is called "${close.name}" — rename it to exactly "Payments".`
+        : `There's no table called "Payments" in this base. Tables found: ${tables.map((t) => t.name).join(", ")}.`,
+    ];
+  }
+  const problems: string[] = [];
+  for (const f of PAYMENT_FIELDS) {
+    const field = table.fields.find((x) => x.name === f.name);
+    if (!field) {
+      const close = table.fields.find(
+        (x) => x.name.trim().toLowerCase() === f.name.toLowerCase(),
+      );
+      problems.push(
+        close
+          ? `The field "${close.name}" should be spelled exactly "${f.name}".`
+          : `Missing the field "${f.name}" (${f.want}).`,
+      );
+    } else if (!f.types.includes(field.type)) {
+      problems.push(`"${f.name}" is a ${field.type} field — change it to ${f.want}.`);
+    }
+  }
+  if (table.fields[0]?.name !== "Name" && table.fields.some((x) => x.name === "Name")) {
+    problems.push(`"Name" should be the table's first (primary) field.`);
+  }
+  return problems;
+}
+
+export type Payment = {
+  id: string;
+  name: string;
+  email: string;
+  month: string; // "2026-11"
+  classes: number;
+  owed: number;
+  paid: number;
+  method: string;
+  twiceAWeek: boolean;
+};
+
+function toPayment(r: AirtableRecord): Payment {
+  const num = (v: unknown) => (typeof v === "number" ? v : 0);
+  return {
+    id: r.id,
+    name: (r.fields.Name as string) ?? "",
+    email: (r.fields.Email as string) ?? "",
+    month: (r.fields.Month as string) ?? "",
+    classes: num(r.fields.Classes),
+    owed: num(r.fields["Amount Owed"]),
+    paid: num(r.fields["Amount Paid"]),
+    method: (r.fields.Method as string) ?? "",
+    twiceAWeek: r.fields["Twice a week"] === true,
+  };
+}
+
+/**
+ * Add a booking to the person's row for that month, creating it if needed.
+ *
+ * Twice a week changes the rate for the whole month, so the first time a
+ * second weekly class appears, the classes they already had come down from
+ * the monthly rate to the twice-a-week one as well — the same total the
+ * booking form showed them.
+ *
+ * Never throws: a booking that saved must not be reported as failed because
+ * its payment row didn't (the table not existing yet, say). It's logged, and
+ * Libby can add the row by hand.
+ */
+async function addToPayments(p: {
+  name: string;
+  email: string;
+  month: string;
+  classes: number;
+  perClass: number;
+  otherClasses: number;
+}): Promise<void> {
+  if (p.classes === 0) return;
+  try {
+    const safe = p.email.toLowerCase().replace(/['\\]/g, "");
+    const month = p.month.replace(/[^0-9-]/g, "");
+    const res = await fetch(
+      `${API}/Payments?maxRecords=1&filterByFormula=${encodeURIComponent(
+        `AND(LOWER({Email}) = '${safe}', {Month} = '${month}')`,
+      )}`,
+      { headers: authHeaders, cache: "no-store" },
+    );
+    if (!res.ok) throw new Error(`read ${res.status}: ${await res.text()}`);
+    const rec = ((await res.json()) as { records?: AirtableRecord[] }).records?.[0];
+    const twice = p.otherClasses > 0;
+    const charge = p.perClass * p.classes;
+    const drop = PRICE.monthly - PRICE.twiceWeekly;
+
+    let fields: Record<string, unknown>;
+    if (rec) {
+      const row = toPayment(rec);
+      // Their earlier classes were charged at the monthly rate; bring them
+      // down now that they're twice a week. Only once — after that, every
+      // class is already at the cheaper rate.
+      const reprice = twice && !row.twiceAWeek ? p.otherClasses * drop : 0;
+      fields = {
+        Classes: row.classes + p.classes,
+        "Amount Owed": row.owed + charge - reprice,
+        "Twice a week": row.twiceAWeek || twice,
+      };
+    } else {
+      // No row yet but other classes that month (booked before this table
+      // existed, or added by Libby): charge the whole month in one go.
+      fields = {
+        Name: p.name,
+        Email: p.email,
+        Month: month,
+        Classes: p.classes + p.otherClasses,
+        "Amount Owed": charge + p.otherClasses * p.perClass,
+        "Amount Paid": 0,
+        "Twice a week": twice,
+      };
+    }
+    const write = await fetch(`${API}/Payments${rec ? `/${rec.id}` : ""}`, {
+      method: rec ? "PATCH" : "POST",
+      headers: { ...authHeaders, "Content-Type": "application/json" },
+      // typecast: a Month or Method set up as a dropdown, or an amount as
+      // text, still saves instead of being rejected.
+      body: JSON.stringify({ typecast: true, fields }),
+    });
+    if (!write.ok) throw new Error(`write ${write.status}: ${await write.text()}`);
+  } catch (err) {
+    console.error(
+      `Booking saved, but its Payments row wasn't (${p.email}, ${p.month}):`,
+      err,
+    );
+  }
+}
+
+/**
+ * Payment rows for the given months, by name. Returns null when the
+ * Payments table can't be read — most likely it hasn't been created yet —
+ * so the rest of the admin page still loads.
+ */
+export async function getPayments(months: string[]): Promise<Payment[] | null> {
+  const list = months
+    .map((m) => `{Month} = '${m.replace(/[^0-9-]/g, "")}'`)
+    .join(", ");
+  try {
+    const rows = await fetchAll(
+      "Payments",
+      { filterByFormula: `OR(${list})` },
+      READ_TTL,
+    );
+    return rows
+      .map(toPayment)
+      .sort((a, b) => a.name.localeCompare(b.name));
+  } catch (err) {
+    console.error("Could not read the Payments table:", err);
+    return null;
+  }
+}
+
+/** Record what someone has paid in total for the month, and how. */
+export async function setPayment(
+  id: string,
+  paid: number,
+  method: string,
+): Promise<void> {
+  const res = await fetch(`${API}/Payments/${id}`, {
+    method: "PATCH",
+    headers: { ...authHeaders, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      typecast: true, // creates the Method option if Libby hasn't yet
+      fields: { "Amount Paid": paid, Method: method || null },
+    }),
+  });
+  if (!res.ok) {
+    throw new Error(`setPayment failed (${res.status}): ${await res.text()}`);
   }
 }

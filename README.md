@@ -70,9 +70,28 @@ from 76 to 100, so don't drop raw exports straight into `public/`.
 
 ## Airtable
 
-Three tables: **Sessions** (recurring class slots), **Booking** (sign-ups) and
-**Members**. One row per recurring class *time*, not per date — dates are
-computed in code, so the schedule doesn't need maintaining by hand.
+Four tables: **Sessions** (recurring class slots), **Booking** (sign-ups),
+**Members** and **Payments**. One row per recurring class *time*, not per date —
+dates are computed in code, so the schedule doesn't need maintaining by hand.
+
+**Payments** holds one row per person per month: what they owe and what's been
+paid. Website bookings add to it; Libby marks payments from `/admin`. Its
+fields, spelled exactly:
+
+| Field | Type |
+|---|---|
+| Name | single line text (primary field) |
+| Email | email |
+| Month | single line text, e.g. `2026-11` |
+| Classes | number |
+| Amount Owed | number |
+| Amount Paid | number |
+| Method | single select: Bit, Bank transfer, Cash |
+| Twice a week | checkbox |
+
+Until the table exists, bookings still save — the payment row is skipped and
+logged — and the admin Payments screen shows these setup steps. Prices live in
+`app/lib/pricing.ts`.
 
 Reads are cached (60s for bookings, 600s for sessions) and busted on write, to
 stay inside the free plan's ~1,000 API calls per month. Libby manages the studio
