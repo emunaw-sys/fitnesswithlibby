@@ -7,9 +7,11 @@ import type {
   Member,
   StudioClass,
   MonthDay,
+  Payment,
 } from "@/app/lib/airtable";
+import { monthName, nextMonthOpen } from "@/app/lib/pricing";
 
-type View = "home" | "week" | "members" | "classes";
+type View = "home" | "week" | "members" | "classes" | "payments";
 type Act = (
   u: string,
   m: string,
@@ -31,10 +33,16 @@ export default function AdminDashboard({
   roster,
   members,
   classes,
+  payments,
+  months,
 }: {
   roster: RosterClass[];
   members: Member[];
   classes: StudioClass[];
+  /** null when the Payments table can't be read (not set up yet). */
+  payments: Payment[] | null;
+  /** This month and next, as "2026-11". */
+  months: string[];
 }) {
   const router = useRouter();
   const [view, setView] = useState<View>("home");
@@ -93,6 +101,7 @@ export default function AdminDashboard({
       <Home
         members={members}
         classes={classes}
+        payments={payments}
         onGo={go}
         onLogout={logout}
         onRefresh={() => act("/api/admin/refresh", "POST", {})}
@@ -105,6 +114,7 @@ export default function AdminDashboard({
     week: "Classes & bookings",
     members: "Members",
     classes: "Manage classes",
+    payments: "Payments",
   };
 
   return (
@@ -130,6 +140,9 @@ export default function AdminDashboard({
       {view === "classes" && (
         <ClassesView classes={classes} act={act} busy={busy} />
       )}
+      {view === "payments" && (
+        <PaymentsView payments={payments} months={months} act={act} busy={busy} />
+      )}
     </div>
   );
 }
@@ -139,17 +152,20 @@ export default function AdminDashboard({
 function Home({
   members,
   classes,
+  payments,
   onGo,
   onLogout,
   onRefresh,
 }: {
   members: Member[];
   classes: StudioClass[];
+  payments: Payment[] | null;
   onGo: (v: View) => void;
   onLogout: () => void;
   onRefresh: () => Promise<boolean>;
 }) {
   const activeMembers = members.filter((m) => m.status === "Active").length;
+  const owing = payments?.filter((p) => p.paid < p.owed).length ?? 0;
   const [refresh, setRefresh] = useState<"idle" | "busy" | "done" | "failed">(
     "idle",
   );
@@ -195,6 +211,18 @@ function Home({
             {classes.filter((c) => !c.archived).length} class
             {classes.filter((c) => !c.archived).length === 1 ? "" : "es"} · dates,
             add or remove
+          </span>
+        </button>
+        <button className="ad-home-card" onClick={() => onGo("payments")}>
+          <span className="ad-home-title">Payments</span>
+          <span className="ad-home-sub">
+            {payments === null
+              ? "Set up the Payments table to start"
+              : payments.length === 0
+                ? "Nothing to collect yet"
+                : owing === 0
+                  ? "Everyone's paid up"
+                  : `${owing} ${owing === 1 ? "person" : "people"} still to pay`}
           </span>
         </button>
       </div>
@@ -859,5 +887,194 @@ function AddClass({ act, busy }: { act: Act; busy: boolean }) {
         </button>
       </div>
     </form>
+  );
+}
+
+/* ---------------------------- Payments ------------------------------- */
+
+const shekels = (n: number) => `₪${n}`;
+
+function PaymentsView({
+  payments,
+  months,
+  act,
+  busy,
+}: {
+  payments: Payment[] | null;
+  months: string[];
+  act: Act;
+  busy: boolean;
+}) {
+  // In the last week of the month Libby is collecting for next month.
+  const [month, setMonth] = useState(nextMonthOpen() ? months[1] : months[0]);
+
+  if (payments === null) {
+    return (
+      <div className="ad-setup">
+        <SetupCheck />
+        <p>
+          <strong>The Payments table isn&rsquo;t set up yet.</strong> Bookings
+          still work — they just aren&rsquo;t tallied here until it exists.
+        </p>
+        <p>
+          In Airtable, add a table called <strong>Payments</strong> with these
+          fields, spelled exactly like this:
+        </p>
+        <ul>
+          <li><strong>Name</strong> — single line text (the first field)</li>
+          <li><strong>Email</strong> — email</li>
+          <li><strong>Month</strong> — single line text, like 2026-11</li>
+          <li><strong>Classes</strong> — number</li>
+          <li><strong>Amount Owed</strong> — number</li>
+          <li><strong>Amount Paid</strong> — number</li>
+          <li><strong>Method</strong> — single select: Bit, Bank transfer, Cash</li>
+          <li><strong>Twice a week</strong> — checkbox</li>
+        </ul>
+      </div>
+    );
+  }
+
+  // Who still owes first, then by name — the list is a to-do list.
+  const rows = payments
+    .filter((p) => p.month === month)
+    .sort((a, b) => Number(a.paid >= a.owed) - Number(b.paid >= b.owed));
+  const owed = rows.reduce((n, p) => n + p.owed, 0);
+  const paid = rows.reduce((n, p) => n + Math.min(p.paid, p.owed), 0);
+
+  const record = (p: Payment, amount: number, method: string) =>
+    act("/api/admin/payments", "PATCH", { id: p.id, paid: amount, method });
+
+  return (
+    <div>
+      <div className="ad-period">
+        {months.map((m) => (
+          <button key={m} className={month === m ? "on" : ""} onClick={() => setMonth(m)}>
+            {monthName(m)}
+          </button>
+        ))}
+      </div>
+
+      <div className="ad-paysum">
+        <div>
+          <span>Expected</span>
+          <strong>{shekels(owed)}</strong>
+        </div>
+        <div>
+          <span>Received</span>
+          <strong>{shekels(paid)}</strong>
+        </div>
+        <div className={owed - paid > 0 ? "due" : ""}>
+          <span>Still to come</span>
+          <strong>{shekels(owed - paid)}</strong>
+        </div>
+      </div>
+
+      {rows.length === 0 && (
+        <p className="ad-empty">
+          No bookings for {monthName(month)} yet. They appear here as people book
+          on the website.
+        </p>
+      )}
+      {rows.length > 0 && (
+        <ul className="ad-mlist">
+          {rows.map((p) => {
+            const due = p.owed - p.paid;
+            return (
+              <li key={p.id}>
+                <div className="ad-person">
+                  <span className="ad-name">
+                    {p.name}
+                    {p.twiceAWeek && <span className="ad-badge member">Twice a week</span>}
+                  </span>
+                  <span className="ad-phone">
+                    {p.classes} {p.classes === 1 ? "class" : "classes"} ·{" "}
+                    {shekels(p.owed)}
+                    {p.email ? ` · ${p.email}` : ""}
+                  </span>
+                  {due > 0 ? (
+                    <span className="ad-due">
+                      Owes {shekels(due)}
+                      {p.paid > 0 && ` (paid ${shekels(p.paid)} so far)`}
+                    </span>
+                  ) : (
+                    <span className="ad-paid">
+                      Paid{p.method ? ` · ${p.method}` : ""}
+                    </span>
+                  )}
+                </div>
+                <div className="ad-actions">
+                  {due > 0 ? (
+                    (["Bit", "Bank transfer", "Cash"] as const).map((m) => (
+                      <button
+                        key={m}
+                        disabled={busy}
+                        className="ad-mark"
+                        onClick={() => record(p, p.owed, m)}
+                      >
+                        Paid · {m === "Bank transfer" ? "Transfer" : m}
+                      </button>
+                    ))
+                  ) : (
+                    <button
+                      disabled={busy}
+                      className="ad-mark"
+                      onClick={() => record(p, 0, "")}
+                    >
+                      Undo
+                    </button>
+                  )}
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+      <p className="ad-paynote">
+        A cancelled class or money rolled over? Change their Amount Owed in
+        Airtable, then press &ldquo;Refresh from Airtable&rdquo; on the home page.
+      </p>
+      <p className="ad-paynote">
+        A website booking not showing up here?
+      </p>
+      <SetupCheck />
+    </div>
+  );
+}
+
+/* Asks the server whether the Payments table matches what the site writes,
+ * so a misspelt field shows up here rather than as silently missing rows. */
+function SetupCheck() {
+  const [result, setResult] = useState<string[] | "busy" | "failed" | null>(null);
+  async function check() {
+    setResult("busy");
+    try {
+      const res = await fetch("/api/admin/payments");
+      const d = (await res.json()) as { problems?: string[] };
+      setResult(res.ok && d.problems ? d.problems : "failed");
+    } catch {
+      setResult("failed");
+    }
+  }
+  return (
+    <div className="ad-check">
+      <button className="ad-mark" disabled={result === "busy"} onClick={check}>
+        {result === "busy" ? "Checking…" : "Check the Payments table setup"}
+      </button>
+      {result === "failed" && <p className="ad-due">Couldn&rsquo;t reach Airtable — try again.</p>}
+      {Array.isArray(result) && result.length === 0 && (
+        <p className="ad-paid">
+          The table is set up correctly. If a booking still didn&rsquo;t appear,
+          check it was for classes that person hadn&rsquo;t already booked — a
+          repeat booking adds nothing.
+        </p>
+      )}
+      {Array.isArray(result) && result.length > 0 && (
+        <ul className="ad-problems">
+          {result.map((p) => (
+            <li key={p}>{p}</li>
+          ))}
+        </ul>
+      )}
+    </div>
   );
 }

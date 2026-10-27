@@ -1,6 +1,12 @@
 import type { Metadata } from "next";
 import { isAuthed } from "@/app/lib/adminAuth";
-import { getRoster, getMembers, getClasses } from "@/app/lib/airtable";
+import {
+  getRoster,
+  getMembers,
+  getClasses,
+  getPayments,
+} from "@/app/lib/airtable";
+import { monthKey, nextMonthKey } from "@/app/lib/pricing";
 import AdminLogin from "./AdminLogin";
 import AdminDashboard from "./AdminDashboard";
 import "./admin.css";
@@ -18,14 +24,19 @@ export default async function AdminPage() {
   if (!(await isAuthed())) {
     return <AdminLogin />;
   }
+  // This month and next: next month fills up in the last week of this one,
+  // which is when Libby is chasing renewals.
+  const thisMonth = monthKey(new Date());
+  const months = [thisMonth, nextMonthKey(thisMonth)];
   let data;
   try {
-    const [roster, members, classes] = await Promise.all([
+    const [roster, members, classes, payments] = await Promise.all([
       getRoster(),
       getMembers(),
       getClasses(),
+      getPayments(months),
     ]);
-    data = { roster, members, classes };
+    data = { roster, members, classes, payments };
   } catch (err) {
     // Without this, any Airtable failure (an expired token, Airtable being
     // down, the free plan's monthly limit running out) shows Libby a bare
@@ -56,6 +67,8 @@ export default async function AdminPage() {
       roster={data.roster}
       members={data.members}
       classes={data.classes}
+      payments={data.payments}
+      months={months}
     />
   );
 }

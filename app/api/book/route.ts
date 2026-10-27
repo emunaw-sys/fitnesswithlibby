@@ -5,13 +5,14 @@ import { isSpam } from "@/app/lib/spam";
 
 /**
  * POST /api/book
- * Body: { sessionId, name, email, phone?, firstTime?, weeks? }
+ * Body: { sessionId, name, email, phone?, firstTime?, month? }
  * Saves the booking into Airtable's Booking table.
  *
- * `weeks` books that many consecutive occurrences, but it is a request, not
- * an instruction: createBooking only honours it for an active member, and
- * silently drops weeks that have since filled up. The response reports the
- * dates actually booked so the UI can show what really happened.
+ * `month` ("2026-11") books every class left in that month, but it is a
+ * request, not an instruction: createBooking only accepts this month or next,
+ * and silently drops dates that have since filled up. The response reports
+ * the dates actually booked, and what they cost, so the UI can show what
+ * really happened.
  */
 export async function POST(request: Request) {
   let body: unknown;
@@ -22,7 +23,7 @@ export async function POST(request: Request) {
   }
 
   const fields = (body as Record<string, unknown>) ?? {};
-  const { sessionId, name, email, phone, firstTime, weeks } = fields;
+  const { sessionId, name, email, phone, firstTime, month } = fields;
 
   // Pretend it worked, but don't save it — a bot must not take up a place.
   if (isSpam(fields)) return NextResponse.json({ ok: true, dates: [] });
@@ -38,18 +39,18 @@ export async function POST(request: Request) {
   }
 
   try {
-    const { dates, added, alreadyHeld } = await createBooking({
+    const { dates, added, alreadyHeld, price } = await createBooking({
       sessionId,
       name: name.trim(),
       email: email.trim(),
       phone: typeof phone === "string" ? phone.trim() : undefined,
       firstTime: Boolean(firstTime),
-      weeks: typeof weeks === "number" ? weeks : 1,
+      month: typeof month === "string" ? month : undefined,
     });
     // Bust the cached schedule so the new "spots left" shows immediately,
-    // and the admin roster too.
-    refreshTables("Booking");
-    return NextResponse.json({ ok: true, dates, added, alreadyHeld });
+    // and the admin roster and payments too.
+    refreshTables("Booking", "Payments");
+    return NextResponse.json({ ok: true, dates, added, alreadyHeld, price });
   } catch (err) {
     // "That class just filled up" is the user's problem to fix, not a fault —
     // show them the real reason instead of a generic failure.
