@@ -15,10 +15,20 @@ export const metadata: Metadata = {
   openGraph: { title: TITLE, description: DESCRIPTION, url: "/book" },
 };
 
-// Render on request (not at build time), so the deploy never depends on
-// Airtable being reachable. The Airtable reads are still cached (see
-// app/lib/airtable.ts), so this doesn't add API calls.
-export const dynamic = "force-dynamic";
+// Prerendered and served from the CDN, regenerated in the background every
+// five minutes so the "next Sunday / next Monday" dates never drift.
+//
+// NOT `dynamic = "force-dynamic"`: that forces every fetch() in this page to
+// `{ cache: "no-store" }`, which silently overrode the 24-hour cache in
+// app/lib/airtable.ts and made every single visitor wait on two live Airtable
+// reads before seeing anything. The deploy still doesn't depend on Airtable
+// being reachable — the try/catch below renders the fallback either way.
+//
+// Regenerating every five minutes costs no extra Airtable calls, because the
+// reads keep their own 24-hour cache (a route's revalidate never overrides a
+// fetch's). A booking expires the Booking tag via refreshTables(), so spots
+// left are correct on the very next render, not five minutes later.
+export const revalidate = 300;
 
 export default async function BookPage() {
   let schedule: DaySchedule[] = [];
