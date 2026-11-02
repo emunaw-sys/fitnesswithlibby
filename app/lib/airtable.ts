@@ -352,6 +352,42 @@ function readUpcomingBookings(): Promise<AirtableRecord[]> {
   );
 }
 
+/**
+ * The live classes a booking belongs to.
+ *
+ * Normally that's its Sessions link, minus any archived class: when Libby
+ * replaces a class, bookings still sitting in the old one are for a class
+ * that no longer runs, and must not count as a second weekly class (which
+ * would wrongly switch someone to the twice-a-week rate and add them to the
+ * month's total).
+ *
+ * A link cleared by hand in Airtable leaves a booking with no class at all,
+ * which would vanish from the roster and free up a place it still holds. So
+ * an unlinked booking is matched back to its class by name, weekday and time
+ * — but only when exactly one live class fits.
+ */
+function bookingSessionIds(b: AirtableRecord, sessions: AirtableRecord[]): string[] {
+  const live = sessions.filter((s) => !s.fields.Archived);
+  const links = b.fields["Sessions"];
+  if (Array.isArray(links) && links.length > 0) {
+    return (links as string[]).filter((id) => live.some((s) => s.id === id));
+  }
+  const name = b.fields["Class Name"];
+  const date = b.fields["Class Date"];
+  if (typeof name !== "string" || typeof date !== "string") return [];
+  const [y, m, d] = date.split("-").map(Number);
+  const day = DAY_ORDER[new Date(y, m - 1, d).getDay()];
+  const time = b.fields["Class Time"];
+  const matches = live.filter(
+    (s) =>
+      String(s.fields.Name ?? "").trim().toLowerCase() === name.trim().toLowerCase() &&
+      s.fields.Day === day &&
+      (typeof time !== "string" ||
+        timeToMinutes(String(s.fields.Time ?? "")) === timeToMinutes(time)),
+  );
+  return matches.length === 1 ? [matches[0].id] : [];
+}
+
 export type HeldMonth = { sessionId: string; month: string; classes: number };
 
 /**
@@ -364,14 +400,17 @@ export async function getHeldMonths(email: string): Promise<HeldMonth[]> {
   const mine = email.trim().toLowerCase();
   if (!mine) return [];
   const counts = new Map<string, number>();
-  for (const b of await readUpcomingBookings()) {
+  const [sessions, bookings] = await Promise.all([
+    fetchAll("Sessions", {}, READ_TTL),
+    readUpcomingBookings(),
+  ]);
+  for (const b of bookings) {
     if (b.fields["Attendance"] === "Cancelled") continue;
     const rowEmail = b.fields["Email"];
     const date = b.fields["Class Date"];
-    const links = b.fields["Sessions"];
     if (typeof rowEmail !== "string" || rowEmail.trim().toLowerCase() !== mine) continue;
-    if (typeof date !== "string" || !Array.isArray(links)) continue;
-    for (const sid of links) {
+    if (typeof date !== "string") continue;
+    for (const sid of bookingSessionIds(b, sessions)) {
       const key = `${sid}|${monthKey(date)}`;
       counts.set(key, (counts.get(key) ?? 0) + 1);
     }
@@ -402,9 +441,8 @@ export async function getSchedule(): Promise<DaySchedule[]> {
   for (const b of bookings) {
     if (b.fields["Attendance"] === "Cancelled") continue;
     const classDate = b.fields["Class Date"];
-    const sessionLinks = b.fields["Sessions"];
-    if (typeof classDate !== "string" || !Array.isArray(sessionLinks)) continue;
-    for (const sid of sessionLinks) {
+    if (typeof classDate !== "string") continue;
+    for (const sid of bookingSessionIds(b, sessions)) {
       const key = `${sid}|${classDate}`;
       counts.set(key, (counts.get(key) ?? 0) + 1);
     }
@@ -524,15 +562,26 @@ export class BookingFullError extends Error {
  * Also how many classes this person holds in *other* classes in `month` —
  * any at all makes them twice a week, and the cheaper rate. It comes from the
  * same read, so it costs no extra API call.
+ *
+ * And which of the dates they hold were booked as a single class: those were
+ * charged at the single-class price, and come down to the month rate when
+ * they book the rest of that month.
  */
 async function readSessionState(
   sessionId: string,
   isoDates: string[],
   email: string,
+  sessions: AirtableRecord[],
   month?: string,
-): Promise<{ taken: Map<string, number>; held: Set<string>; otherClasses: number }> {
+): Promise<{
+  taken: Map<string, number>;
+  held: Set<string>;
+  heldSingles: Set<string>;
+  otherClasses: number;
+}> {
   const taken = new Map<string, number>(isoDates.map((d) => [d, 0]));
   const held = new Set<string>();
+  const heldSingles = new Set<string>();
   let otherClasses = 0;
   const mine = email.trim().toLowerCase();
   const rows = await fetchAll(
@@ -543,8 +592,9 @@ async function readSessionState(
   for (const b of rows) {
     if (b.fields["Attendance"] === "Cancelled") continue;
     const date = b.fields["Class Date"];
-    const links = b.fields["Sessions"];
-    if (typeof date !== "string" || !Array.isArray(links)) continue;
+    if (typeof date !== "string") continue;
+    const links = bookingSessionIds(b, sessions);
+    if (links.length === 0) continue;
     const rowEmail = b.fields["Email"];
     const isMine =
       mine !== "" &&
@@ -556,9 +606,22 @@ async function readSessionState(
     }
     if (!taken.has(date)) continue;
     taken.set(date, (taken.get(date) ?? 0) + 1);
-    if (isMine) held.add(date);
+    if (isMine) {
+      held.add(date);
+      // A single-class booking is one website row whose Series Dates lists
+      // just its own date; a month booking lists every date on its first row
+      // and leaves the rest blank. Manual bookings were never charged here.
+      const series = b.fields["Series Dates"];
+      if (
+        b.fields["Source"] === "Website" &&
+        typeof series === "string" &&
+        series.trim().split("\n").length === 1
+      ) {
+        heldSingles.add(date);
+      }
+    }
   }
-  return { taken, held, otherClasses };
+  return { taken, held, heldSingles, otherClasses };
 }
 
 /**
@@ -575,17 +638,14 @@ export async function createBooking(booking: NewBooking): Promise<{
   alreadyHeld: number;
   price: Price;
 }> {
-  // Look up the session's day so we stamp the correct upcoming date.
-  const sres = await fetch(`${API}/Sessions/${booking.sessionId}`, {
-    headers: authHeaders,
-    next: { revalidate: READ_TTL, tags: [tableTag("Sessions")] },
-  });
-  if (!sres.ok) {
-    throw new Error(
-      `Airtable session lookup failed (${sres.status}): ${await sres.text()}`,
-    );
+  // Look up the session's day so we stamp the correct upcoming date. The
+  // whole table, from the same cache as the schedule: telling a second weekly
+  // class from an archived one needs every class anyway.
+  const sessions = await fetchAll("Sessions", {}, READ_TTL);
+  const srec = sessions.find((s) => s.id === booking.sessionId);
+  if (!srec || srec.fields.Archived) {
+    throw new BookingFullError("That class isn't running at the moment.");
   }
-  const srec = (await sres.json()) as AirtableRecord;
   const day = srec.fields?.Day as string | undefined;
   if (!day) throw new Error("That class has no day set.");
   const className = srec.fields?.Name as string | undefined;
@@ -627,10 +687,11 @@ export async function createBooking(booking: NewBooking): Promise<{
   // Which of those dates actually have room. Availability is re-read
   // uncached: the cached schedule the client saw may be up to 60s stale, and
   // two people can pick the last place in that window.
-  const { taken, held, otherClasses } = await readSessionState(
+  const { taken, held, heldSingles, otherClasses } = await readSessionState(
     booking.sessionId,
     wantedDates,
     booking.email,
+    sessions,
     month,
   );
 
@@ -701,7 +762,12 @@ export async function createBooking(booking: NewBooking): Promise<{
 
   // Charge only for the places just taken — ones they already held were
   // charged when they first booked them.
+  // A single class they'd already booked becomes part of the month, so it
+  // comes down from the single-class price to the month rate.
   const price = priceFor(confirmed.length, month, otherClasses, member?.active === true);
+  const singlesInMonth = month
+    ? confirmed.filter((d) => heldSingles.has(d)).length
+    : 0;
   await addToPayments({
     name: booking.name,
     email: booking.email,
@@ -709,6 +775,9 @@ export async function createBooking(booking: NewBooking): Promise<{
     classes: openDates.length,
     perClass: price.perClass,
     otherClasses: month ? otherClasses : 0,
+    credit:
+      singlesInMonth *
+      Math.max(0, singleClassRate(member?.active === true) - price.perClass),
   });
 
   return {
@@ -777,8 +846,7 @@ export async function getRoster(weekOffset = 0): Promise<RosterClass[]> {
   const byKey = new Map<string, RosterBooking[]>();
   for (const b of bookings) {
     const classDate = b.fields["Class Date"];
-    const links = b.fields["Sessions"];
-    if (typeof classDate !== "string" || !Array.isArray(links)) continue;
+    if (typeof classDate !== "string") continue;
     const rb: RosterBooking = {
       id: b.id,
       name: (b.fields["Name"] as string) ?? "",
@@ -789,7 +857,7 @@ export async function getRoster(weekOffset = 0): Promise<RosterClass[]> {
         (b.fields["Member"] as unknown[]).length > 0,
       attendance: (b.fields["Attendance"] as string) ?? "Booked",
     };
-    for (const sid of links as string[]) {
+    for (const sid of bookingSessionIds(b, sessions)) {
       const key = `${sid}|${classDate}`;
       const arr = byKey.get(key);
       if (arr) arr.push(rb);
@@ -1230,9 +1298,8 @@ export async function getMonthRoster(): Promise<MonthDay[]> {
   for (const b of bookings) {
     if (b.fields["Attendance"] === "Cancelled") continue;
     const cd = b.fields["Class Date"];
-    const links = b.fields["Sessions"];
-    if (typeof cd !== "string" || !Array.isArray(links)) continue;
-    for (const sid of links as string[]) {
+    if (typeof cd !== "string") continue;
+    for (const sid of bookingSessionIds(b, sessions)) {
       const key = `${sid}|${cd}`;
       counts.set(key, (counts.get(key) ?? 0) + 1);
     }
@@ -1420,6 +1487,8 @@ async function addToPayments(p: {
   classes: number;
   perClass: number;
   otherClasses: number;
+  /** Taken off what they already owe: a single class repriced to the month. */
+  credit: number;
 }): Promise<void> {
   if (p.classes === 0) return;
   try {
@@ -1446,7 +1515,7 @@ async function addToPayments(p: {
       const reprice = twice && !row.twiceAWeek ? p.otherClasses * drop : 0;
       fields = {
         Classes: row.classes + p.classes,
-        "Amount Owed": row.owed + charge - reprice,
+        "Amount Owed": row.owed + charge - reprice - p.credit,
         "Twice a week": row.twiceAWeek || twice,
       };
     } else {
